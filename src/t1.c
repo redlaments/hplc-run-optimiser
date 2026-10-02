@@ -5,93 +5,105 @@
 #include <time.h>
 #include <errno.h>
 #include <string.h>
+#include <sqlite3.h>
+
 #include "lib/file.h"
 #include "lib/csv.h"
 #include "lib/metadata.h"
 #include "logic.h"
+#include "run-db.h"
+#include "query.h"
 
 #define DASH_TABLE_ROWS 12
 #define DASH_TABLE_COLUMNS 2
 
-char*dash_table[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS];
+char *dash_table[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS];
+
 void init_dash()
 {
-        char*name[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS]={
-        {"Solvent","ACN"},
-        {"pH","3"},
-        {"Run Type","ISO"},
-        {"%B","100"},
-        {"Flow Rate (mL/s)","1.5"},
-        {"Injection volume (microliters)","20"},
-        {"Injection type","BLK"},
-        {"Sample Concentration","0.0"},
-        {"Column phase and brand","C18 Pinnacle"},
-        {"Column measurements","150x4.6x5"},
-        {"Temperature (C)","amb"},
-        {"Detector Wavelength (nm)","254"}
-        };
+    char *name[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS] = {
+        {"Solvent", "ACN"},
+        {"pH", "3"},
+        {"Run Type", "ISO"},
+        {"%B", "100"},
+        {"Flow Rate (mL/s)", "1.5"},
+        {"Injection volume (microliters)", "20"},
+        {"Injection type", "BLK"},
+        {"Sample Concentration", "0.0"},
+        {"Column phase and brand", "C18 Pinnacle"},
+        {"Column measurements", "150x4.6x5"},
+        {"Temperature (C)", "amb"},
+        {"Detector Wavelength (nm)", "254"}
+    };
 
-        memcpy(dash_table,name,sizeof(name));
+    memcpy(dash_table, name, sizeof(name));
 }
-void update_metadata(struct hplc_run_metadata*m);
 
-int add_run(char*input)
+void update_metadata(struct hplc_run_metadata *m);
+
+int add_run(char *input)
 {
-        FILE*f;
-        struct hplc_data hdata;
-        struct benchmarks bench={
-        7,1.4,15,4000};
-        enum selectivity_action action;
-        void*adata=NULL;
+    FILE *f;
+    struct hplc_data hdata;
+    struct benchmarks bench = {7, 1.4, 15, 4000};
+    enum selectivity_action action;
+    void *adata = NULL;
+    char*new_pk;
 
-        f=file_open(input,&hdata.data);
-        if(!f){
-                fprintf(stderr,"%s\n",strerror(errno));
-                return 0;
-        }
-        if(!csv_parse_file(f,&hdata)){
-                fprintf(stderr,"csv parsing failed\n");
-                hplc_metadata_destroy(&hdata.data);
-                fclose(f);
-                return 0;
-        }
-        action=logic(&hdata,&bench,&adata);
-
-        switch(action){
-        case CITEMP:
-        case CDTEMP:
-		hdata.data.temperature=*(double*)adata;
-		break;
-        case CSOL:
-                hdata.data.slvnt=(char*)adata;
-		break;
-        case CIB:
-        case CDB:
-                hdata.data.slvnt_percent=*(double*)adata;
-		break;
-        case CDFLOW:
-        case CIFLOW:
-                hdata.data.flow_rate=*(double*)adata;
-		break;
-        default:
-                break;
-        }
-	update_metadata(&hdata.data);
-	free(adata);	
-        hplc_destroy(&hdata);
+    f = file_open(input, &hdata.data);
+    if (!f) {
+        fprintf(stderr, "%s\n", strerror(errno));
+        return 0;
+    }
+    if (!csv_parse_file(f, &hdata)) {
+        fprintf(stderr, "csv parsing failed\n");
+        hplc_metadata_destroy(&hdata.data);
         fclose(f);
+        return 0;
+    }
+    if(!hplc_run_check(input))
+	    hplc_run_add(&hdata.data,input);
+    action = logic(&hdata, &bench, &adata);
+
+    switch (action) {
+    case CITEMP:
+    case CDTEMP:
+        hdata.data.temperature = *(double *)adata;
+        break;
+    case CSOL:
+        hdata.data.slvnt = (char *)adata;
+        break;
+    case CIB:
+    case CDB:
+        hdata.data.slvnt_percent = *(double *)adata;
+        break;
+    case CDFLOW:
+    case CIFLOW:
+        hdata.data.flow_rate = *(double *)adata;
+        break;
+    default:
+        break;
+    }
+    if(!hplc_run_meta_check(&hdata.data,&new_pk))
+	update_metadata(&hdata.data);
+    else{
+    	add_run(new_pk);
+	free(new_pk);
+    }
+    free(adata);
+    hplc_destroy(&hdata);
+    fclose(f);
+
+    return 1;
 }
 
 // ============================================================================
 // COMPILE-TIME CONSTANTS & DATA DEFINITIONS
 // ============================================================================
-// Screen 1: Compile-time fixed table constants
 static const char *const TABLE_HEADERS[DASH_TABLE_COLUMNS] = {
     "Variable", "Parameter"
 };
 
-
-// Screen 2: Blueprint metadata
 #define NUM_BLUEPRINT_PARTS 3
 
 typedef struct {
@@ -126,19 +138,11 @@ static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
     }
 };
 
-// Screen 3: Database historical table (Compile-time columns, runtime rows)
-#define DB_TABLE_COLS 4
+#define DB_TABLE_COLS 13
 
 static const char *const DB_HEADERS[DB_TABLE_COLS] = {
-    "Log ID", "Timestamp", "Pressure (PSI)", "Status Flag"
+    "Primary Key","Solvent","pH","Run Type","%B","Flow Rate","Injection Volume","Injection Type","Sample Concentration","Column Type","Dimensions","Temperature","Wavelength"
 };
-
-typedef struct {
-    int log_id;
-    char timestamp[32];
-    double pressure;
-    char status[16];
-} DbRecord;
 
 // ============================================================================
 // UI STATE & CONTEXT STRUCTURE
@@ -156,13 +160,14 @@ typedef struct {
 } AppContext;
 
 AppContext app = {0};
+
 // ============================================================================
 // C BACKEND FUNCTIONS
 // ============================================================================
 
 void c_backend_process_command(const char *input_text) {
     printf("[C Backend] Received text command: \"%s\"\n", input_text);
-    add_run((char*)input_text);
+    add_run((char *)input_text);
 }
 
 void c_backend_on_part_hovered(const BlueprintPart *part) {
@@ -171,32 +176,6 @@ void c_backend_on_part_hovered(const BlueprintPart *part) {
     } else {
         printf("[C Backend] Pointer left active blueprint area.\n");
     }
-}
-
-/**
- * Simulates fetching old historical data from a database.
- * Returns dynamically allocated records and sets the row count known only at runtime.
- */
-DbRecord *c_backend_fetch_db_records(int *out_count) {
-    // Generate a random runtime row count between 6 and 14
-    srand((unsigned int)time(NULL));
-    int count = 6 + (rand() % 9);
-    *out_count = count;
-
-    DbRecord *records = malloc(sizeof(DbRecord) * count);
-    if (!records) return NULL;
-
-    const char *statuses[] = {"OK", "WARN", "ERR"};
-
-    for (int i = 0; i < count; i++) {
-        records[i].log_id = 1000 + i;
-        snprintf(records[i].timestamp, sizeof(records[i].timestamp), "2026-10-01 10:%02d:%02d", i * 3, (i * 17) % 60);
-        records[i].pressure = 120.0 + (rand() % 800) / 10.0;
-        snprintf(records[i].status, sizeof(records[i].status), "%s", statuses[i % 3]);
-    }
-
-    printf("[C Backend] Fetched %d records from historical database.\n", count);
-    return records;
 }
 
 // ============================================================================
@@ -296,7 +275,8 @@ static void on_blueprint_motion(GtkEventControllerMotion *controller, double x, 
 }
 
 /**
- * Re-queries DB backend and updates Screen 3 grid rows dynamically.
+ * Re-queries DB backend via hplc_run_table_prepare/hplc_run_table_row
+ * and updates Screen 3 grid rows dynamically.
  */
 static void populate_db_grid(AppContext *app) {
     // Clear old grid if exists
@@ -308,6 +288,8 @@ static void populate_db_grid(AppContext *app) {
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 24);
+    gtk_widget_set_vexpand(grid, TRUE);
+    gtk_widget_set_hexpand(grid, TRUE);
 
     // 1. Attach Headers (Compile-time column count)
     for (int col = 0; col < DB_TABLE_COLS; col++) {
@@ -319,40 +301,34 @@ static void populate_db_grid(AppContext *app) {
         gtk_grid_attach(GTK_GRID(grid), lbl, col, 0, 1, 1);
     }
 
-    // 2. Fetch Data & Attach Dynamic Rows (Runtime row count)
-    int runtime_row_count = 0;
-    DbRecord *records = c_backend_fetch_db_records(&runtime_row_count);
+    // 2. Prepare SQLite statement and fetch dynamic rows as needed to display
+    sqlite3_stmt *stmt = hplc_run_table_prepare();
+    if (stmt) {
+        char **pdata = NULL;
+        int row_idx = 0;
 
-    if (records) {
-        for (int row = 0; row < runtime_row_count; row++) {
-            char buffer[64];
+        while (hplc_run_table_row(stmt, &pdata)) {
+            if (pdata) {
+                for (int col = 0; col < DB_TABLE_COLS; col++) {
+                    const char *cell_text = pdata[col] ? pdata[col] : "";
+                    GtkWidget *lbl = gtk_label_new(cell_text);
+                    gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+                    gtk_grid_attach(GTK_GRID(grid), lbl, col, row_idx + 1, 1, 1);
 
-            // Col 0: Log ID
-            snprintf(buffer, sizeof(buffer), "%d", records[row].log_id);
-            GtkWidget *l1 = gtk_label_new(buffer);
-            gtk_widget_set_halign(l1, GTK_ALIGN_START);
-            gtk_grid_attach(GTK_GRID(grid), l1, 0, row + 1, 1, 1);
-
-            // Col 1: Timestamp
-            GtkWidget *l2 = gtk_label_new(records[row].timestamp);
-            gtk_widget_set_halign(l2, GTK_ALIGN_START);
-            gtk_grid_attach(GTK_GRID(grid), l2, 1, row + 1, 1, 1);
-
-            // Col 2: Pressure
-            snprintf(buffer, sizeof(buffer), "%.2f", records[row].pressure);
-            GtkWidget *l3 = gtk_label_new(buffer);
-            gtk_widget_set_halign(l3, GTK_ALIGN_START);
-            gtk_grid_attach(GTK_GRID(grid), l3, 2, row + 1, 1, 1);
-
-            // Col 3: Status
-            GtkWidget *l4 = gtk_label_new(records[row].status);
-            gtk_widget_set_halign(l4, GTK_ALIGN_START);
-            gtk_grid_attach(GTK_GRID(grid), l4, 3, row + 1, 1, 1);
+                    if (pdata[col]) {
+                        free(pdata[col]);
+                    }
+                }
+                free(pdata);
+                pdata = NULL;
+            }
+            row_idx++;
         }
-        free(records);
+        hplc_run_table_row_destroy(stmt);
     }
 
     gtk_box_append(GTK_BOX(app->db_grid_container), grid);
+    gtk_widget_queue_resize(app->db_grid_container);
 }
 
 static void on_refresh_db_clicked(GtkButton *button, gpointer user_data) {
@@ -364,7 +340,6 @@ static void on_refresh_db_clicked(GtkButton *button, gpointer user_data) {
 // UI BUILDING FUNCTIONS
 // ============================================================================
 
-// Screen 1: Fixed Compile-time Table & Command Entry
 static GtkWidget *build_table_screen(AppContext *app) {
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_start(vbox, 16);
@@ -381,7 +356,6 @@ static GtkWidget *build_table_screen(AppContext *app) {
     gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 24);
 
-    // Build Headers
     for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
         char header_markup[128];
         snprintf(header_markup, sizeof(header_markup), "<b><u>%s</u></b>", TABLE_HEADERS[col]);
@@ -391,21 +365,18 @@ static GtkWidget *build_table_screen(AppContext *app) {
         gtk_grid_attach(GTK_GRID(grid), lbl, col, 0, 1, 1);
     }
 
-    // Populate Matrix Rows & Store Widget References
     for (int row = 0; row < DASH_TABLE_ROWS; row++) {
         for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
             GtkWidget *lbl = gtk_label_new(dash_table[row][col]);
             gtk_widget_set_halign(lbl, GTK_ALIGN_START);
             gtk_grid_attach(GTK_GRID(grid), lbl, col, row + 1, 1, 1);
 
-            // Store reference for fast dynamic updating
             app->table_labels[row][col] = lbl;
         }
     }
 
     gtk_box_append(GTK_BOX(vbox), grid);
 
-    // Separator & Command Input Box
     GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_margin_top(sep, 8);
     gtk_widget_set_margin_bottom(sep, 8);
@@ -431,9 +402,7 @@ static GtkWidget *build_table_screen(AppContext *app) {
 
     return vbox;
 }
-/**
- * Updates all cells in Screen 1 with new matrix data.
- */
+
 void update_screen1_table_data(AppContext *app, const char *new_matrix[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS]) {
     for (int row = 0; row < DASH_TABLE_ROWS; row++) {
         for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
@@ -446,7 +415,7 @@ void update_screen1_table_data(AppContext *app, const char *new_matrix[DASH_TABL
         }
     }
 }
-// Screen 2: Machine Blueprint Inspector
+
 static GtkWidget *build_blueprint_screen(AppContext *app) {
     GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
     gtk_widget_set_margin_start(hbox, 16);
@@ -494,7 +463,6 @@ static GtkWidget *build_blueprint_screen(AppContext *app) {
     return hbox;
 }
 
-// Screen 3: Historical Database Table (Runtime Row Generation)
 static GtkWidget *build_db_screen(AppContext *app) {
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_start(vbox, 16);
@@ -502,7 +470,6 @@ static GtkWidget *build_db_screen(AppContext *app) {
     gtk_widget_set_margin_top(vbox, 16);
     gtk_widget_set_margin_bottom(vbox, 16);
 
-    // Top Header / Control Bar
     GtkWidget *top_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     
     GtkWidget *title = gtk_label_new(NULL);
@@ -517,25 +484,21 @@ static GtkWidget *build_db_screen(AppContext *app) {
 
     gtk_box_append(GTK_BOX(vbox), top_bar);
 
-    // Scrolled window container for dynamic runtime rows
+    // Scrolled window container to handle scroll motions when rows exceed screen bounds
     GtkWidget *scrolled_win = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(scrolled_win, TRUE);
+    gtk_widget_set_hexpand(scrolled_win, TRUE);
 
     app->db_grid_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app->db_grid_container);
 
     gtk_box_append(GTK_BOX(vbox), scrolled_win);
 
-    // Initial query population
     populate_db_grid(app);
 
     return vbox;
 }
-
-// ============================================================================
-// MAIN APPLICATION ENTRY POINT
-// ============================================================================
 
 static void activate(GtkApplication *app_ptr, gpointer user_data) {
     AppContext *app = (AppContext *)user_data;
@@ -547,7 +510,6 @@ static void activate(GtkApplication *app_ptr, gpointer user_data) {
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_window_set_child(GTK_WINDOW(window), vbox);
 
-    // Navigation Stack
     GtkWidget *stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
     gtk_stack_set_transition_duration(GTK_STACK(stack), 200);
@@ -562,15 +524,12 @@ static void activate(GtkApplication *app_ptr, gpointer user_data) {
     gtk_box_append(GTK_BOX(vbox), stack_switcher);
     gtk_box_append(GTK_BOX(vbox), stack);
 
-    // Screen 1: Static Telemetry Data
     GtkWidget *table_screen = build_table_screen(app);
     gtk_stack_add_titled(GTK_STACK(stack), table_screen, "table_view", "Data Table");
 
-    // Screen 2: Interactive Blueprint Inspector
     GtkWidget *blueprint_screen = build_blueprint_screen(app);
     gtk_stack_add_titled(GTK_STACK(stack), blueprint_screen, "blueprint_view", "Blueprint Inspector");
 
-    // Screen 3: Historical Database Table (Dynamic Rows)
     GtkWidget *db_screen = build_db_screen(app);
     gtk_stack_add_titled(GTK_STACK(stack), db_screen, "db_view", "Historical DB Logs");
 
@@ -578,8 +537,9 @@ static void activate(GtkApplication *app_ptr, gpointer user_data) {
 }
 
 int main(int argc, char **argv) {
-
     init_dash();
+    if(!hplc_query_init())
+    	return 0;
 
     GtkApplication *gtk_app = gtk_application_new("com.engineering.station", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(gtk_app, "activate", G_CALLBACK(activate), &app);
@@ -587,33 +547,35 @@ int main(int argc, char **argv) {
     int status = g_application_run(G_APPLICATION(gtk_app), argc, argv);
     g_object_unref(gtk_app);
 
+    hplc_query_destroy();
     return status;
 }
-void update_metadata(struct hplc_run_metadata*m)
+
+void update_metadata(struct hplc_run_metadata *m)
 {
-        char tmp[8][50];
+    char tmp[8][50];
 
-        dash_table[0][1]=m->slvnt;
-        snprintf(tmp[0],sizeof(tmp[0]),"%f",m->pH);
-        dash_table[1][1]=tmp[0];
-        dash_table[2][1]=hplc_run_type_str(m->type);
-        snprintf(tmp[1],sizeof(tmp[1]),"%f",m->slvnt_percent);
-        dash_table[3][1]=tmp[1];
-        snprintf(tmp[2],sizeof(tmp[2]),"%f",m->flow_rate);
-        dash_table[4][1]=tmp[2];
-        dash_table[5][1]=m->njctn_volume;
-        dash_table[6][1]=m->njctn_type;
-        snprintf(tmp[3],sizeof(tmp[3]),"%f",m->sample_conc);
-        dash_table[7][1]=tmp[3];
-        snprintf(tmp[4],sizeof(tmp[4]),"%s %s",m->clmn_phase,hplc_clmn_brand_str(m->brand));
-        dash_table[8][1]=tmp[4];
+    dash_table[0][1] = m->slvnt;
+    snprintf(tmp[0], sizeof(tmp[0]), "%f", m->pH);
+    dash_table[1][1] = tmp[0];
+    dash_table[2][1] = hplc_run_type_str(m->type);
+    snprintf(tmp[1], sizeof(tmp[1]), "%f", m->slvnt_percent);
+    dash_table[3][1] = tmp[1];
+    snprintf(tmp[2], sizeof(tmp[2]), "%f", m->flow_rate);
+    dash_table[4][1] = tmp[2];
+    dash_table[5][1] = m->njctn_volume;
+    dash_table[6][1] = m->njctn_type;
+    snprintf(tmp[3], sizeof(tmp[3]), "%f", m->sample_conc);
+    dash_table[7][1] = tmp[3];
+    snprintf(tmp[4], sizeof(tmp[4]), "%s %s", m->clmn_phase, hplc_clmn_brand_str(m->brand));
+    dash_table[8][1] = tmp[4];
 
-        snprintf(tmp[5],sizeof(tmp[4]),"%.3fx%.2fx%.2f",m->clmn_length,m->clmn_id,m->clmn_bead_size);
-        dash_table[9][1]=tmp[5];
-        snprintf(tmp[6],sizeof(tmp[6]),"%.2f",m->temperature);
-        dash_table[10][1]=tmp[6];
-        snprintf(tmp[7],sizeof(tmp[7]),"%d",m->wavelength);
-        dash_table[11][1]=tmp[7];
+    snprintf(tmp[5], sizeof(tmp[5]), "%.3fx%.2fx%.2f", m->clmn_length, m->clmn_id, m->clmn_bead_size);
+    dash_table[9][1] = tmp[5];
+    snprintf(tmp[6], sizeof(tmp[6]), "%.2f", m->temperature);
+    dash_table[10][1] = tmp[6];
+    snprintf(tmp[7], sizeof(tmp[7]), "%d", m->wavelength);
+    dash_table[11][1] = tmp[7];
 
-         update_screen1_table_data(&app,(const char * (*)[2])dash_table);
+    update_screen1_table_data(&app, (const char * (*)[2])dash_table);
 }

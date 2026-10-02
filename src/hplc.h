@@ -83,8 +83,8 @@ struct hplc_run_metadata{
 	double clmn_length;
 	double clmn_id;
 	double clmn_bead_size;
-	double temperature;
-	int wavelength;
+	double temperature;//stored in db as text
+	int wavelength; //stored in db as variable wave
 };
 	
 

@@ -38,7 +38,7 @@ int change_temperature(struct hplc_data*data,struct benchmarks*bench,void**actio
 		*tmp=TEMP1;
 		return 1;
 	}
-	if(data->data.temperature<MAX_TEMP){
+	if(data->data.temperature<(double)MAX_TEMP){
 		*action_data=malloc(sizeof(double));
 		tmp=*action_data;
 		*tmp=MAX_TEMP;
@@ -78,17 +78,20 @@ struct benchmarks*bench,enum selectivity_issue issue,void**action_data)
 		if(bench->backpressure<max_backpressure(&data->csv)){
 			return CDFLOW;
 		}
-		for(int i=0;i<SIZEOF(funcs);i++)
-			if(funcs[i].handle(data,bench,action_data))
+		for(int i=0;i<SIZEOF(funcs);i++){
+			if(funcs[i].handle(data,bench,action_data)>-1)
 				return funcs[i].action;
-		else
-			print_data("Impossible to resolve peaks\n");
-		return ERROR;
+			else
+				print_data("Impossible to resolve peaks\n");
+			return ERROR;
+		}
 	case RUNTIME:
 		
-		if(change_temperature(data,bench,action_data))
+		if(change_temperature(data,bench,action_data)>-1)
 			return CITEMP;
-		//TODO put increase amount in action_data
+		*action_data=malloc(sizeof(double));
+		double*tmp=*action_data;
+		*tmp=data->data.slvnt_percent+IB_AMOUNT;
 		return CIB;
 	default:
 		print_data("Option unrecognised\n");
@@ -164,4 +167,9 @@ enum selectivity_action logic(struct hplc_data*data,struct benchmarks*bench,void
 //	hplc_action(action,*(void**)action_data);
 	/*perform_optimal_b,TODO*/
 	//change temp. req. user %b spec.
+	if(action<0){
+		fprintf(stderr,"logic:error occured:%d\n",action);
+		return ERROR;
+	}
+	return action;
 }

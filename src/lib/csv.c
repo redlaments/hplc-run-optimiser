@@ -665,16 +665,17 @@ int read_file(FILE*f,char**data)
 	}
 	size=ftell(f);
 	rewind(f);
-	*data=malloc(sizeof(char)*size);
+	*data=malloc(sizeof(char)*++size);
 	if(!*data){
 		fprintf(stderr,"read_file:malloc failed\n");
 		return -1;
 	}
 	read=fread(*data,sizeof(char),size,f);
-	if(read!=size){
+	if(read!=size-1){
 		fprintf(stderr,"Expected %ld items got %ld\n",size,read);
 		return -1;
 	}
+	(*data)[size-1]='\0';
 	return size;
 }
 /* argv size is always 2*/
@@ -793,6 +794,11 @@ int _csv_parse(char*data,int*i,int size,struct hplc_data*hdata)
 	char*name[2];
 	struct hplc_csv*hplc=&(hdata->csv);
 	int j=0,crit_count=0,argc;
+
+	d_size=0;
+	for (int k = 0; k < SIZEOF(array); k++) {
+        	array[k].found = false;
+	}
 
 	hdata->csv.pumps=NULL;
 	hdata->csv.pump_count=0;

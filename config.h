@@ -4,8 +4,10 @@
 #define NAME_MAX_ARGS 30
 #define MAX_TEMP 60 /*Maximum column temperature in degrees celsius*/
 #define TEMP1 40 /*temp to move to when amb does not work*/
+#define IB_AMOUNT 3/*%b to increase by*/
 
 #define CLI
+#define HPLC_DB_PATH "hplc.db"
 
 /*Solvents are listed in order of change*/
 static char*solvents[]={

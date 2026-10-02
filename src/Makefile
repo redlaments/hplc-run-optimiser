@@ -1,7 +1,7 @@
 CFLAGS=-pipe -g -O0
-LDFLAGS=-lm $$(pkg-config --libs --cflags gtk4)
+LDFLAGS=-lm $$(pkg-config --libs --cflags gtk4) -lsqlite3
 OBJ=csv.o file.o metadata.o logic.o hplc.o cli.o util.o
-GOBJ=
+GOBJ=query.o run-db.o
 INCLUDE=-I $$(pwd)
 all:$(OBJ) $(GOBJ) t1.o
 	cc $(OBJ) $(GOBJ) $(CFLAGS) $(LDFLAGS) t1.o

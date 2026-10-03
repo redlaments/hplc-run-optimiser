@@ -7,6 +7,7 @@
 #include "hplc.h"
 #include "query.h"
 #include "run-db.h"
+#include "lib/metadata.h"
 
 /* Global database handle assumed from calling environment */
 bool hplc_run_add(struct hplc_run_metadata *data, char *pk)
@@ -243,7 +244,13 @@ bool hplc_run_table_row(sqlite3_stmt *pStmt, char ***pdata)
 	for (i = 0,k=0; i < cols; i++,k++) {
 		char*tmp;
 		int size;
-
+		int itmp=0;
+		
+		if(i==3){
+			itmp = sqlite3_column_int(pStmt, i);
+			row[k]=strdup(hplc_run_type_str(itmp));
+			continue;
+		}
 		if(i==9){
 			if(i+1>=cols){
 				fprintf(stderr,
@@ -251,7 +258,8 @@ bool hplc_run_table_row(sqlite3_stmt *pStmt, char ***pdata)
 				goto loop_error;
 			}
 			txt = (const char *)sqlite3_column_text(pStmt, i++);
-			tmp = (const char *)sqlite3_column_text(pStmt, i);
+			itmp = sqlite3_column_int(pStmt, i);
+			tmp=hplc_clmn_brand_str(itmp);
 			size=snprintf(NULL,0,"%s %s",txt,tmp);
 			if(size<0){
 				fprintf(stderr,"hplc_run_table_row:Loop error\n");
@@ -443,4 +451,42 @@ bool hplc_run_meta_check(struct hplc_run_metadata* data, char** pk)
 
         sqlite3_finalize(pStmt);
         return matched;
+}
+#include <sqlite3.h>
+#include <stdbool.h>
+
+extern sqlite3 *db; // Assumes 'db' is your active SQLite database connection handle
+
+bool hplc_run_col_check(char *col)
+{
+    int ret;
+    sqlite3_stmt *pStmt;
+    bool found = false;
+
+    const char *sql = "SELECT 1 FROM hplc_run WHERE clmn_phase = ? LIMIT 1;";
+
+    // Prepare SQL statement
+    ret = sqlite3_prepare_v2(pDb, sql, -1, &pStmt, NULL);
+    if (ret != SQLITE_OK) {
+    	fprintf(stderr,"hplc_run_col_check:%s\n",sqlite3_errstr(ret));
+        return false;
+    }
+
+    // Bind 'col' to the parameter '?'
+    ret=sqlite3_bind_text(pStmt, 1, col, -1, SQLITE_STATIC);
+    if(ret!=SQLITE_OK){
+    	fprintf(stderr,"hplc_run_col_check:%s\n",sqlite3_errstr(ret));
+	sqlite3_finalize(pStmt);
+	return false;
+   }
+
+    // Execute step
+    if (sqlite3_step(pStmt) == SQLITE_ROW) {
+        found = true;
+    }
+
+    // Finalize statement to prevent resource leaks
+    sqlite3_finalize(pStmt);
+
+    return found;
 }

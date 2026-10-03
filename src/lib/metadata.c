@@ -28,7 +28,7 @@ bool hplc_metadata(char*file_name,struct hplc_run_metadata*data)
 
 	argc=tokenize_str1(file_name,argv,NAME_MAX_ARGS,'-');
 	
-	if(argc<16){
+	if(argc<15){
 		fprintf(stderr,"Args:%d\n",argc);
 		return false;//too few args
 	}
@@ -56,17 +56,20 @@ bool hplc_metadata(char*file_name,struct hplc_run_metadata*data)
 		fprintf(stderr,"Sample Concentration tail:%s\n",tail);
 		tail=NULL;
 	}
-	data->clmn_phase=strdup(argv[11]);
+	
+	char c=argv[11][strlen(argv[11])-1];
+	argv[11][strlen(argv[11])-1]='\0';
 	for(int i=0;i<SIZEOF(brands);i++)
-		if(!strcmp(argv[12],brands[i].name)){
+		if(c==brands[i].name[0]){
 			data->brand=brands[i].type;
 			break;
 		}
+	data->clmn_phase=strdup(argv[11]);
 	
 	char*argv1[3];
 	int argc1;
 
-	argc=tokenize_str1(argv[13],argv1,3,'x');
+	argc=tokenize_str1(argv[12],argv1,3,'x');
 	if(argc!=3)
 		return false;
 		
@@ -82,15 +85,17 @@ bool hplc_metadata(char*file_name,struct hplc_run_metadata*data)
 		fprintf(stderr,"Column bead size tail:%s\n",tail);
 		tail=NULL;
 	}
-	if(!strcmp(argv[14],"amb"))
+	if(!strcmp(argv[13],"amb"))
 		data->temperature=NAN;
 	else{
-		data->temperature=HPLC_STRTOD(argv[14]){
+		if(argv[13][0]=='t'||argv[13][0]=='T')
+			argv[13]++;
+		data->temperature=HPLC_STRTOD(argv[13]){
 			fprintf(stderr,"Temperature tail:%s\n",tail);
 			tail=NULL;
 		}
 	}
-	data->wavelength=(int)strtol(argv[15],&tail,10);
+	data->wavelength=(int)strtol(argv[14],&tail,10);
 	if(tail!=NULL&&*tail!='\0'){
 		if(!strcmp(tail,".csv"))
 			return true;

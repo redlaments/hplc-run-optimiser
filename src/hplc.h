@@ -95,4 +95,5 @@ struct hplc_data{
 };
 
 void hplc_destroy(struct hplc_data*data);
+int hplc_column_phase(struct hplc_run_metadata*data);
 #endif

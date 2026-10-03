@@ -1,6 +1,9 @@
 #ifndef RUN_DB_H
 #define RUN_DB_H
 
+#include <stdbool.h>
+#include <sqlite3.h>
+
 /*adds run metadata to db*/
 bool hplc_run_add(struct hplc_run_metadata*data,char*pk);
 /*returns the run metadata associated with pk*/
@@ -17,4 +20,6 @@ bool hplc_run_check(char*pk);
 /*checks if there is a run associated with metadata
  * returns run pk if there is*/
 bool hplc_run_meta_check(struct hplc_run_metadata*data,char**pk);
+/*checks if column is present in db*/
+bool hplc_run_col_check(char*col);
 #endif

@@ -6,6 +6,7 @@
 #include "lib/error.h"
 #include "../config.h"
 #include "logic.h"
+#include "run-db.h"
 
 #ifdef CLI
 #include "cli.h"
@@ -58,6 +59,16 @@ int change_solvent(struct hplc_data*data,struct benchmarks*bench,void**action_da
 		}
 	return HPLC_UNKNOWN;
 }
+int change_column(struct hplc_data*data,struct benchmarks*bench,void**action_data)
+{
+	for(int i=0;i<SIZEOF(column_types);i++)
+	/*only checks for past use for processing speed reasons*/
+		if(!hplc_run_col_check(column_types[i])){
+			*action_data=strdup(column_types[i]);
+			return CLIG;
+		}
+	return HPLC_LIGAND;
+}
 /*Determines what should be done
  * see action() on how that is implemented*/
 enum selectivity_action selectivity(struct hplc_data*data,
@@ -72,8 +83,8 @@ struct benchmarks*bench,enum selectivity_issue issue,void**action_data)
 		struct sel_func funcs[]={
 		{lower_b,CDB},
 		{change_temperature,CITEMP},
-		{change_solvent,CSOL}
-		/*||change_column(data,bench) TODO*/
+		{change_solvent,CSOL},
+		{change_column,CLIG}
 		};
 		if(bench->backpressure<max_backpressure(&data->csv)){
 			return CDFLOW;

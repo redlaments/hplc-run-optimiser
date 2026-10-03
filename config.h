@@ -23,13 +23,23 @@ struct hplc_type_name{
 
 /*value must corrospond to index in brands*/
 enum hplc_clmn_brand{
-PINNACLE=0
+PINNACLE=0,
+FORCE=1
 };
 
 static struct hplc_type_name brands[]={
-{PINNACLE,"P"}
+{PINNACLE,"P"},
+{FORCE,"F"}
 };
 
+static char*column_types[]={
+"C18",
+"C18AQ",
+"C8"
+"BiPH",
+"PFP",
+"IBDU"
+};
 /*value must corrospond to index in run*/
 enum hplc_run_type{
 ISO=0,

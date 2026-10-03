@@ -5,5 +5,5 @@
 #include "hplc.h"
 
 FILE*file_open(const char*pk,struct hplc_run_metadata*data);
-
+char*current_dir();
 #endif

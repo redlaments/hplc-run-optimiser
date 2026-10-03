@@ -55,6 +55,12 @@ int add_run(char *input)
         fprintf(stderr, "%s\n", strerror(errno));
         return 0;
     }
+    if(hplc_column_phase(&hdata.data)<0){
+    	fprintf(stderr,"Column phase %s is invalid\n",hdata.data.clmn_phase);
+	hplc_metadata_destroy(&hdata.data);
+	fclose(f);
+	return 0;
+    }
     if (!csv_parse_file(f, &hdata)) {
         fprintf(stderr, "csv parsing failed\n");
         hplc_metadata_destroy(&hdata.data);
@@ -104,7 +110,7 @@ static const char *const TABLE_HEADERS[DASH_TABLE_COLUMNS] = {
     "Variable", "Parameter"
 };
 
-#define NUM_BLUEPRINT_PARTS 3
+#define NUM_BLUEPRINT_PARTS 5
 
 typedef struct {
     const char *id;
@@ -117,24 +123,38 @@ typedef struct {
 static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
     {
         "P-001",
-        "Hydraulic Pump",
-        "Generates fluid pressure required to actuate mechanical arms and valve manifolds.",
-        "pump.png",
+        "Solvent Bottles",
+        "Stores solvents",
+        "test.jpg",
         {30, 40, 130, 90}
     },
     {
         "P-002",
-        "Cooling Radiator",
-        "Dissipates thermal buildup using high-airflow dual convection fans.",
+        "Pumps",
+        "Creates the pressure to pump the solvent through the column at a consistant, adjustable rate",
         "radiator.png",
         {190, 40, 110, 140}
     },
     {
         "P-003",
-        "Main Control Unit",
-        "Embedded microcontroller running realtime system monitoring and telemetry processing.",
+        "Column",
+        "The place where chromatography occurs",
         "mcu.png",
         {40, 160, 120, 80}
+    },
+    {
+        "P-004",
+        "Column Oven",
+        "Heats the column so the column can function at a consistant temperature",
+        "mcu.png",
+        {60, 160, 120, 80}
+    },
+    {
+        "P-005",
+        "Detector",
+        "Detects the presence of compounds in the eluted solvent. Typically via UV-Vis spectroscopy. Some systems are fitted with mass spectroscopy or other means of measurement",
+        "mcu.png",
+        {80, 160, 120, 80}
     }
 };
 
@@ -262,6 +282,7 @@ static void on_blueprint_motion(GtkEventControllerMotion *controller, double x, 
             if (g_file_test(hovered->image_path, G_FILE_TEST_EXISTS)) {
                 gtk_image_set_from_file(GTK_IMAGE(app->part_image), hovered->image_path);
             } else {
+	    	fprintf(stderr,"image not found:%s\n",hovered->image_path);
                 gtk_image_set_from_icon_name(GTK_IMAGE(app->part_image), "system-run");
             }
         } else {
@@ -348,7 +369,7 @@ static GtkWidget *build_table_screen(AppContext *app) {
     gtk_widget_set_margin_bottom(vbox, 16);
 
     GtkWidget *title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(title), "<b>System Telemetry Table (Compile-Time Matrix)</b>");
+    gtk_label_set_markup(GTK_LABEL(title), "<b>MonasHPLC Run Parameters</b>");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(vbox), title);
 
@@ -389,7 +410,17 @@ static GtkWidget *build_table_screen(AppContext *app) {
     GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     
     app->entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(app->entry), "Type command or REFRESH...");
+    char*tmp,*dir,*help="Enter Primary Key e.g. GR19-16";
+    int buf_size;
+    dir=current_dir();
+    buf_size=snprintf(NULL,0,"%s, Ensure csv file is in current dir:%s",help,dir);
+    tmp=malloc(sizeof(char)*++buf_size);
+    snprintf(tmp,buf_size,"%s, Ensure csv file is in current dir:%s",help,dir);
+    tmp[buf_size-1]='\0'; 
+    gtk_entry_set_placeholder_text(GTK_ENTRY(app->entry),tmp);
+    free(dir);
+    free(tmp);
+
     gtk_widget_set_hexpand(app->entry, TRUE);
     g_signal_connect(app->entry, "activate", G_CALLBACK(on_command_submitted), app);
     gtk_box_append(GTK_BOX(hbox), app->entry);
@@ -473,7 +504,7 @@ static GtkWidget *build_db_screen(AppContext *app) {
     GtkWidget *top_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     
     GtkWidget *title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(title), "<b>Historical Logs (Runtime Database Fetch)</b>");
+    gtk_label_set_markup(GTK_LABEL(title), "<b>MonasHPLC Past Runs (local db)</b>");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     gtk_widget_set_hexpand(title, TRUE);
     gtk_box_append(GTK_BOX(top_bar), title);
@@ -525,13 +556,13 @@ static void activate(GtkApplication *app_ptr, gpointer user_data) {
     gtk_box_append(GTK_BOX(vbox), stack);
 
     GtkWidget *table_screen = build_table_screen(app);
-    gtk_stack_add_titled(GTK_STACK(stack), table_screen, "table_view", "Data Table");
+    gtk_stack_add_titled(GTK_STACK(stack), table_screen, "table_view", "Run Parameters");
 
     GtkWidget *blueprint_screen = build_blueprint_screen(app);
     gtk_stack_add_titled(GTK_STACK(stack), blueprint_screen, "blueprint_view", "Blueprint Inspector");
 
     GtkWidget *db_screen = build_db_screen(app);
-    gtk_stack_add_titled(GTK_STACK(stack), db_screen, "db_view", "Historical DB Logs");
+    gtk_stack_add_titled(GTK_STACK(stack), db_screen, "db_view", "Past Runs");
 
     gtk_window_present(GTK_WINDOW(window));
 }
@@ -553,12 +584,12 @@ int main(int argc, char **argv) {
 
 void update_metadata(struct hplc_run_metadata *m)
 {
-    char tmp[8][50];
+    char tmp[9][50];
 
     dash_table[0][1] = m->slvnt;
     snprintf(tmp[0], sizeof(tmp[0]), "%f", m->pH);
     dash_table[1][1] = tmp[0];
-    dash_table[2][1] = hplc_run_type_str(m->type);
+    dash_table[2][1]=(char*)hplc_run_type_str(m->type);
     snprintf(tmp[1], sizeof(tmp[1]), "%f", m->slvnt_percent);
     dash_table[3][1] = tmp[1];
     snprintf(tmp[2], sizeof(tmp[2]), "%f", m->flow_rate);

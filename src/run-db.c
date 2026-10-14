@@ -69,7 +69,27 @@ bool hplc_run_add(struct hplc_run_metadata *data, char *pk)
 	sqlite3_finalize(pStmt);
 	return true;
 }
+void hplc_run_delete(void)
+{
+	int ret;
+	sqlite3_stmt *pStmt;
+	char *sql = "DELETE FROM hplc_run";
 
+	ret = sqlite3_prepare_v2(pDb, sql, strlen(sql)+1, &pStmt, NULL);
+	if (ret != SQLITE_OK) {
+		fprintf(stderr, "hplc_run_delete: failed to prepare statement: %s\n",
+			sqlite3_errmsg(pDb));
+		return;
+	}
+
+	ret = sqlite3_step(pStmt);
+	if (ret != SQLITE_DONE) {
+		fprintf(stderr, "hplc_run_delete: execution failed: %s\n",
+			sqlite3_errmsg(pDb));
+	}
+
+	sqlite3_finalize(pStmt);
+}
 bool hplc_run_retrive(struct hplc_run_metadata *data, char *pk)
 {
 	int ret;
@@ -259,7 +279,7 @@ bool hplc_run_table_row(sqlite3_stmt *pStmt, char ***pdata)
 			}
 			txt = (const char *)sqlite3_column_text(pStmt, i++);
 			itmp = sqlite3_column_int(pStmt, i);
-			tmp=hplc_clmn_brand_str(itmp);
+			tmp=(char*)hplc_clmn_brand_str(itmp);
 			size=snprintf(NULL,0,"%s %s",txt,tmp);
 			if(size<0){
 				fprintf(stderr,"hplc_run_table_row:Loop error\n");

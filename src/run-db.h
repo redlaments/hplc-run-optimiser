@@ -6,6 +6,8 @@
 
 /*adds run metadata to db*/
 bool hplc_run_add(struct hplc_run_metadata*data,char*pk);
+/*deletes all runs from db*/
+void hplc_run_delete();
 /*returns the run metadata associated with pk*/
 bool hplc_run_retrive(struct hplc_run_metadata*data,char*pk);
 /*prepares a sqlite3_stmt for use with hplc_run_table_row*/

@@ -357,6 +357,13 @@ static void on_refresh_db_clicked(GtkButton *button, gpointer user_data) {
     populate_db_grid(app);
 }
 
+static void db_run_delete(GtkButton*button,gpointer user_data)
+{
+	AppContext*app=(AppContext*)user_data;
+	hplc_run_delete();
+	on_refresh_db_clicked(button,user_data);
+}
+
 // ============================================================================
 // UI BUILDING FUNCTIONS
 // ============================================================================
@@ -509,6 +516,10 @@ static GtkWidget *build_db_screen(AppContext *app) {
     gtk_widget_set_hexpand(title, TRUE);
     gtk_box_append(GTK_BOX(top_bar), title);
 
+    GtkWidget *fresh_btn = gtk_button_new_with_label("Delete all runs");
+    g_signal_connect(fresh_btn, "clicked", G_CALLBACK(db_run_delete), app);
+    gtk_box_append(GTK_BOX(top_bar), fresh_btn);
+    
     GtkWidget *refresh_btn = gtk_button_new_with_label("Fetch / Query DB");
     g_signal_connect(refresh_btn, "clicked", G_CALLBACK(on_refresh_db_clicked), app);
     gtk_box_append(GTK_BOX(top_bar), refresh_btn);

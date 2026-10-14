@@ -39,7 +39,7 @@ void init_dash()
     memcpy(dash_table, name, sizeof(name));
 }
 
-void update_metadata(struct hplc_run_metadata *m);
+void update_metadata(struct hplc_run_metadata *m,int index,int color);
 
 int add_run(char *input)
 {
@@ -49,10 +49,11 @@ int add_run(char *input)
     enum selectivity_action action;
     void *adata = NULL;
     char*new_pk;
+    int index=-1,color=0;
 
     f = file_open(input, &hdata.data);
     if (!f) {
-        fprintf(stderr, "%s\n", strerror(errno));
+        fprintf(stderr, "file_open failed check your file_name adheres to the naming standard!\n");
         return 0;
     }
     if(hplc_column_phase(&hdata.data)<0){
@@ -75,23 +76,31 @@ int add_run(char *input)
     case CITEMP:
     case CDTEMP:
         hdata.data.temperature = *(double *)adata;
+	index=10;
+	color=2;
         break;
     case CSOL:
         hdata.data.slvnt = (char *)adata;
+	index=0;
+	color=0;
         break;
     case CIB:
     case CDB:
         hdata.data.slvnt_percent = *(double *)adata;
+	index=3;
+	color=0;
         break;
     case CDFLOW:
     case CIFLOW:
         hdata.data.flow_rate = *(double *)adata;
+	index=4;
+	color=1;
         break;
     default:
         break;
     }
     if(!hplc_run_meta_check(&hdata.data,&new_pk))
-	update_metadata(&hdata.data);
+	update_metadata(&hdata.data,index,color);
     else{
     	add_run(new_pk);
 	free(new_pk);
@@ -395,7 +404,8 @@ static GtkWidget *build_table_screen(AppContext *app) {
 
     for (int row = 0; row < DASH_TABLE_ROWS; row++) {
         for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
-            GtkWidget *lbl = gtk_label_new(dash_table[row][col]);
+            GtkWidget *lbl = gtk_label_new(NULL);
+    	    gtk_label_set_markup(GTK_LABEL(lbl),dash_table[row][col]);
             gtk_widget_set_halign(lbl, GTK_ALIGN_START);
             gtk_grid_attach(GTK_GRID(grid), lbl, col, row + 1, 1, 1);
 
@@ -445,11 +455,11 @@ void update_screen1_table_data(AppContext *app, const char *new_matrix[DASH_TABL
     for (int row = 0; row < DASH_TABLE_ROWS; row++) {
         for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
             if (app->table_labels[row][col] != NULL) {
-                gtk_label_set_text(
+            gtk_label_set_markup(
                     GTK_LABEL(app->table_labels[row][col]),
-                    new_matrix[row][col]
+                    new_matrix[row][col] ? new_matrix[row][col] : ""
                 );
-            }
+	    }
         }
     }
 }
@@ -593,9 +603,16 @@ int main(int argc, char **argv) {
     return status;
 }
 
-void update_metadata(struct hplc_run_metadata *m)
+void update_metadata(struct hplc_run_metadata *m,int index,int color)
 {
-    char tmp[9][50];
+    char tmp[9][50],spec[100];
+    char*markup;
+    char*colors[]={
+    "<span foreground=\"lime\">%s</span>",
+    "<span foreground=\"cyan\">%s</span>",
+    "<span foreground=\"orange\">%s</span>"
+    };
+
 
     dash_table[0][1] = m->slvnt;
     snprintf(tmp[0], sizeof(tmp[0]), "%f", m->pH);
@@ -619,5 +636,18 @@ void update_metadata(struct hplc_run_metadata *m)
     snprintf(tmp[7], sizeof(tmp[7]), "%d", m->wavelength);
     dash_table[11][1] = tmp[7];
 
-    update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+    if(index<0){
+    	update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+    }
+    else{
+    	char*original=dash_table[index][1];
+
+	markup = g_markup_printf_escaped (colors[color], dash_table[index][1]);
+	printf("markup:%s\n",markup);
+	dash_table[index][1]=markup;
+
+	update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+	g_free (markup);
+	dash_table[index][1]=original;
+    }
 }

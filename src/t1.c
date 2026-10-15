@@ -5,6 +5,7 @@
 #include <time.h>
 #include <errno.h>
 #include <string.h>
+#include <stdarg.h>
 #include <sqlite3.h>
 
 #include "lib/file.h"
@@ -186,6 +187,10 @@ typedef struct {
     GtkWidget *db_grid_container; // Container for dynamic DB rows
     const BlueprintPart *active_part;
     GtkWidget *table_labels[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS];
+
+/*used for table screen*/
+    GtkTextBuffer *console_buffer;
+    GtkWidget     *console_view;
 } AppContext;
 
 AppContext app = {0};
@@ -210,6 +215,54 @@ void c_backend_on_part_hovered(const BlueprintPart *part) {
 // ============================================================================
 // CALLBACKS & EVENT CONTROLLERS
 // ============================================================================
+
+void gui_log(AppContext *app, const char *text, bool is_error) {
+    if (!app || !app->console_buffer) return;
+
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(app->console_buffer, &end);
+
+    // Apply color tag depending on whether it is stdout or stderr
+    const char *tag_name = is_error ? "stderr_tag" : "stdout_tag";
+    gtk_text_buffer_insert_with_tags_by_name(app->console_buffer, &end, text, -1, tag_name, NULL);
+
+    // Auto-scroll to the end of the log output
+    GtkTextMark *mark = gtk_text_buffer_get_insert(app->console_buffer);
+    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(app->console_view), mark, 0.0, FALSE, 0.0, 1.0);
+}
+
+void print_data(const char*restrict format,...)
+{
+        va_list ap;
+	char*tmp;
+	size_t size;
+
+        va_start(ap,format);
+
+	size=vsnprintf(NULL,0,format,ap);
+	tmp=malloc(sizeof(char)*++size);
+	vsnprintf(tmp,size,format,ap);
+	gui_log(&app,tmp,false);
+	free(tmp);
+
+        va_end(ap);
+}
+void print_error(char*format,...)
+{
+        va_list ap;
+	char*tmp;
+	size_t size;
+
+        va_start(ap,format);
+
+	size=vsnprintf(NULL,0,format,ap);
+	tmp=malloc(sizeof(char)*++size);
+	vsnprintf(tmp,size,format,ap);
+	gui_log(&app,tmp,true);
+	free(tmp);
+
+        va_end(ap);
+}
 
 static void on_command_submitted(GtkButton *button, gpointer user_data) {
     AppContext *app = (AppContext *)user_data;
@@ -389,6 +442,7 @@ static GtkWidget *build_table_screen(AppContext *app) {
     gtk_widget_set_halign(title, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(vbox), title);
 
+/*table*/
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 24);
@@ -420,6 +474,7 @@ static GtkWidget *build_table_screen(AppContext *app) {
     gtk_widget_set_margin_bottom(sep, 8);
     gtk_box_append(GTK_BOX(vbox), sep);
 
+/*cmd entry box*/
     GtkWidget *entry_label = gtk_label_new("Execute Backend Command:");
     gtk_widget_set_halign(entry_label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(vbox), entry_label);
@@ -445,8 +500,45 @@ static GtkWidget *build_table_screen(AppContext *app) {
     GtkWidget *btn = gtk_button_new_with_label("Send");
     g_signal_connect(btn, "clicked", G_CALLBACK(on_command_submitted), app);
     gtk_box_append(GTK_BOX(hbox), btn);
-
     gtk_box_append(GTK_BOX(vbox), hbox);
+
+/*terminal console*/
+GtkWidget *console_label = gtk_label_new("Terminal / Execution Output:");
+    gtk_widget_set_halign(console_label, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(console_label, 8);
+    gtk_box_append(GTK_BOX(vbox), console_label);
+
+    GtkWidget *scrolled_win = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_vexpand(scrolled_win, TRUE);
+    gtk_widget_set_hexpand(scrolled_win, TRUE);
+    gtk_widget_set_size_request(scrolled_win, -1, 120);
+
+    // Create Buffer & Views
+    app->console_buffer = gtk_text_buffer_new(NULL);
+    app->console_view = gtk_text_view_new_with_buffer(app->console_buffer);
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(app->console_view), FALSE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(app->console_view), TRUE);
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(app->console_view), 8);
+    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(app->console_view), 8);
+    gtk_text_view_set_top_margin(GTK_TEXT_VIEW(app->console_view), 8);
+    gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(app->console_view), 8);
+
+    // Setup stdout (green) and stderr (red) tags
+    gtk_text_buffer_create_tag(app->console_buffer, "stdout_tag", "foreground", "#33FF33", NULL);
+    gtk_text_buffer_create_tag(app->console_buffer, "stderr_tag", "foreground", "#FF3333", NULL);
+
+    /* Apply dark terminal theme background using CSS
+    GtkCssProvider *css_provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(css_provider, "textview { background-color: #1E1E1E; }");
+    gtk_style_context_add_provider(
+        gtk_widget_get_style_context(app->console_view),
+        GTK_STYLE_PROVIDER(css_provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+    );*/
+
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app->console_view);
+    gtk_box_append(GTK_BOX(vbox), scrolled_win);
 
     return vbox;
 }
@@ -643,7 +735,7 @@ void update_metadata(struct hplc_run_metadata *m,int index,int color)
     	char*original=dash_table[index][1];
 
 	markup = g_markup_printf_escaped (colors[color], dash_table[index][1]);
-	printf("markup:%s\n",markup);
+	//printf("markup:%s\n",markup);
 	dash_table[index][1]=markup;
 
 	update_screen1_table_data(&app, (const char * (*)[2])dash_table);

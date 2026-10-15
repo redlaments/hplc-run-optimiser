@@ -64,6 +64,7 @@ void init_bench()
 
 void update_metadata(struct hplc_run_metadata *m,int index,int color);
 void update_bench(struct benchmarks*ben);
+void print_data(const char*restrict format,...);
 
 int add_run(char *input)
 {
@@ -142,7 +143,7 @@ static const char *const TABLE_HEADERS[DASH_TABLE_COLUMNS] = {
     "Variable", "Parameter"
 };
 
-#define NUM_BLUEPRINT_PARTS 5
+#define NUM_BLUEPRINT_PARTS 7
 
 typedef struct {
     const char *id;
@@ -154,39 +155,75 @@ typedef struct {
 
 static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
     {
-        "P-001",
         "Solvent Bottles",
-        "Stores solvents",
+        "Solvent Bottles",
+
+	"The solvent bottles store the various solvents needed in a pure form. "
+        "Solvents are mixed in the required proportions by the HPLC apparatus"
+	"\n\nThis module affects the solvent parameter. The solvent is a chemical parameter and as such will influence the selectivity and efficiency of the chromatograms when changed",
+
         "test.jpg",
-        {30, 40, 130, 90}
+        {40, 40, 130, 80}
     },
     {
-        "P-002",
         "Pumps",
-        "Creates the pressure to pump the solvent through the column at a consistant, adjustable rate",
+        "Pumps",
+	"The pump generates the pressure for pushing the liquid through the "
+        "column. There are at least 2 pump heads in each pump. This is as"
+        " 1 head cannot generate a constant flow rate "
+	"\n\nThis module affects the flow rate, a mechanical parameter, This will influence the efficiency but not the selectivity of chromatograms when changed"
+	"\n\nThis module affects the %B, a chemical parameter. Changing this will inflence the selectivity of compounds in chromatograms.",
         "radiator.png",
-        {190, 40, 110, 140}
+        {40, 120, 130, 80}
     },
     {
-        "P-003",
         "Column",
-        "The place where chromatography occurs",
+        "Column",
+        "The place where chromatography occurs"
+	"\n\nThis module affects the column ligand, a chemical parameter. Changing this will affect the selectivity of compounds in chromatograms",
         "mcu.png",
-        {40, 160, 120, 80}
+        {40, 200, 120, 80}
     },
     {
-        "P-004",
         "Column Oven",
-        "Heats the column so the column can function at a consistant temperature",
+        "Column Oven",
+        "Heats the column so the column can function at a consistant temperature"
+	"\n\nThis module affect temperature, both a mechanical and chemical paramter. Changing this will affect both the selectivity of compounds and efficiency in chromatograms",
         "mcu.png",
-        {60, 160, 120, 80}
+        {40, 280, 120, 80}
     },
     {
-        "P-005",
         "Detector",
-        "Detects the presence of compounds in the eluted solvent. Typically via UV-Vis spectroscopy. Some systems are fitted with mass spectroscopy or other means of measurement",
+        "Detector",
+        "Detects the presence of compounds in the eluted solvent. Typically "
+        "via UV-Vis spectroscopy. Some systems are fitted with mass "
+        "spectroscopy or other means of measurement",
         "mcu.png",
-        {80, 160, 120, 80}
+        {40, 360, 120, 80}
+    },
+    {
+        "Degasser",
+        "Degasser",
+
+        "The degasser removes dissolved gas from the solvents. The amount of "
+        "gas a liquid can dissolve changes at the pressure changes. As gases "
+        "are compressable and liquids are not, this can cause issues with "
+        "pressure generation at the pump head",
+
+        "mcu.png",
+        {40, 440, 120, 80}
+    },
+    {
+        "Injector",
+        "Injector",
+
+        "The injector is where samples are loaded before they are sent into "
+        "the instrument. Due to the design of the injector interface, the time"
+        "at which the sample is loaded into the instrument can be seen on the "
+        "chromatogram",
+
+        "mcu.png",
+        {40, 520, 120, 80}
     }
 };
 
@@ -417,13 +454,13 @@ static void on_blueprint_motion(GtkEventControllerMotion *controller, double x, 
         if (hovered) {
             gtk_label_set_text(GTK_LABEL(app->part_title_label), hovered->name);
             gtk_label_set_text(GTK_LABEL(app->part_desc_label), hovered->description);
-
+/*
             if (g_file_test(hovered->image_path, G_FILE_TEST_EXISTS)) {
                 gtk_image_set_from_file(GTK_IMAGE(app->part_image), hovered->image_path);
             } else {
 	    	fprintf(stderr,"image not found:%s\n",hovered->image_path);
                 gtk_image_set_from_icon_name(GTK_IMAGE(app->part_image), "system-run");
-            }
+            }*/
         } else {
             gtk_label_set_text(GTK_LABEL(app->part_title_label), "Machine Blueprint");
             gtk_label_set_text(GTK_LABEL(app->part_desc_label), "Hover mouse cursor over a component region to inspect details and images.");
@@ -601,8 +638,7 @@ GtkWidget *console_label = gtk_label_new("Terminal / Execution Output:");
     gtk_text_view_set_top_margin(GTK_TEXT_VIEW(app->console_view), 8);
     gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(app->console_view), 8);
 
-    // Setup stdout (green) and stderr (red) tags
-    gtk_text_buffer_create_tag(app->console_buffer, "stdout_tag", "foreground", "#33FF33", NULL);
+    gtk_text_buffer_create_tag(app->console_buffer, "stdout_tag", "foreground", "#000000", NULL);
     gtk_text_buffer_create_tag(app->console_buffer, "stderr_tag", "foreground", "#FF3333", NULL);
 
     /* Apply dark terminal theme background using CSS

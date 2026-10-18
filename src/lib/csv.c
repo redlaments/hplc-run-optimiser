@@ -1,11 +1,14 @@
 /*ensure all functions can handle excel csvs*/
+#if !defined (_WIN32)||!defined (_WIN64)
 #define _XOPEN_SOURCE 500
+#include <unistd.h>
+#endif
+
 #include <stdio.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <stdbool.h>
 #include <string.h>
 #include <float.h>
@@ -30,7 +33,6 @@
 
 void(*deconst[3])(struct hplc_csv*csv);
 int d_size=0;//for deconst
-char*hplc_file_data;
 
 /*handles return when data[i]='['*/
 struct cmd{
@@ -96,9 +98,9 @@ int table_rows(char*data,int i,int size)
 	}
 	return rows;
 }
-void csv_print_file_data(void)
+void csv_print_file_data(struct hplc_csv*csv)
 {
-	printf("data:%s\n",hplc_file_data);
+	printf("data:%s\n",csv->hplc_file_data);
 }
 void csv_print_peaks(struct hplc_csv*csv)
 {
@@ -125,14 +127,14 @@ void csv_print_chromatogram(struct hplc_csv*csv)
 }
 void csv_print(struct hplc_csv*csv)
 {
-	csv_print_file_data();
+	csv_print_file_data(csv);
 	csv_print_peaks(csv);
 	csv_print_pumps(csv);
 	csv_print_chromatogram(csv);
 }
-void csv_destroy_file_data(void)
+void csv_destroy_file_data(struct hplc_csv*csv)
 {
-	free(hplc_file_data);
+	free(csv->hplc_file_data);
 }
 void csv_destroy_peaks(struct hplc_csv*csv)
 {
@@ -163,7 +165,7 @@ void csv_destroy(struct hplc_csv*csv)
 	csv_destroy_peaks(csv);
 	csv_destroy_chromatogram(csv);
 	csv_destroy_pumps(csv);
-	csv_destroy_file_data();
+	csv_destroy_file_data(csv);
 }
 int handle_null(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*varg)
 {
@@ -837,6 +839,7 @@ int _csv_parse(char*data,int*i,int size,struct hplc_data*hdata)
 			deconst[k](hplc);
 		return -1;
 }
+/* unmaintained
 void csv_parse_names(char*file_name)
 {
 	char*name[2];
@@ -857,7 +860,7 @@ void csv_parse_names(char*file_name)
 		printf("%s\n",name[0],name[1]);
         }
 	csv_destroy_file_data();
-}
+}*/
 bool csv_parse(char*data,int size,struct hplc_data*hdata)
 {
 	for(int i=0;i<size;i++){
@@ -873,15 +876,15 @@ bool csv_parse_file(FILE*f,struct hplc_data*hdata)
 {
 	int size;
 
-	size=read_file(f,&hplc_file_data);
+	size=read_file(f,&hdata->csv.hplc_file_data);
 	if(size<0)
 		return false;
-	if(!csv_parse(hplc_file_data,size,hdata)){
-		csv_destroy_file_data();
+	if(!csv_parse(hdata->csv.hplc_file_data,size,hdata)){
+		csv_destroy_file_data(&hdata->csv);
 		return false;
 	}
 	return true;
-}
+}/*
 bool csv_parse_name(char*file,struct hplc_data*hdata)
 {
 	int size;
@@ -898,7 +901,7 @@ bool csv_parse_name(char*file,struct hplc_data*hdata)
 	}
 	fclose(f);
 	return true;
-}
+}*/
 /*gemini code 26/9/26*/
 
 /**

@@ -68,6 +68,7 @@ struct hplc_csv{
         struct hplc_csv_header header;
 	struct hplc_csv_pump*pumps;
 	int pump_count;
+	char*hplc_file_data;//csv data struct points to this
 };
 struct hplc_run_metadata{
 	char*slvnt;

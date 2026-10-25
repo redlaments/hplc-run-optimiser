@@ -80,7 +80,7 @@ FILE* file_open(const char *pk,struct hplc_run_metadata*meta) {
 
     if(!hplc_metadata(find_data.cFileName,meta))
     	return NULL;
-    FILE *fp = fopen(find_data.cFileName, "r");
+    FILE *fp = fopen(find_data.cFileName, "rb");
     FindClose(h_find);
     return fp;
 

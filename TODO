@@ -1,0 +1,4 @@
+done:change db format to conform to double to scaled int
+done:change code to accomodate type change for temperature
+ensure there are no doubles in code, except for ratios
+done:ensure code is changed to accomodate new column struct

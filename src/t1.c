@@ -16,6 +16,7 @@
 #include "query.h"
 #include "macro.h"
 #include "util.h"
+#include "hplc-types.h"
 
 #define DASH_TABLE_ROWS 12
 #define DASH_TABLE_COLUMNS 2
@@ -62,9 +63,10 @@ void init_bench()
 	memcpy(bench_table,name,sizeof(name));
 }
 
-void update_metadata(struct hplc_run_metadata *m,int index,int color);
+void update_metadata(struct hplc_run_metadata *m,enum selectivity_action action,void*adata);
 void update_bench(struct benchmarks*ben);
 void print_data(const char*restrict format,...);
+void print_error(char*format,...);
 
 int add_run(char *input)
 {
@@ -73,7 +75,6 @@ int add_run(char *input)
     enum selectivity_action action;
     void *adata = NULL;
     char*new_pk;
-    int index=-1,color=0;
 
     f = file_open(input, &hdata.data);
     if (!f) {
@@ -81,7 +82,7 @@ int add_run(char *input)
         return 0;
     }
     if(hplc_column_phase(&hdata.data)<0){
-    	fprintf(stderr,"Column phase %s is invalid\n",hdata.data.clmn_phase);
+    	fprintf(stderr,"Column phase %s is invalid\n",hdata.data.column.clmn_phase);
 	hplc_metadata_destroy(&hdata.data);
 	fclose(f);
 	return 0;
@@ -95,36 +96,48 @@ int add_run(char *input)
     if(!hplc_run_check(input))
 	    hplc_run_add(&hdata.data,input);
     action = logic(&hdata, &bench, &adata);
-
     switch (action) {
     case CITEMP:
     case CDTEMP:
-        hdata.data.temperature = *(double *)adata;
-	index=10;
-	color=2;
+        hdata.data.temperature = *(hplc_sint *)adata;
         break;
     case CSOL:
         hdata.data.slvnt = (char *)adata;
-	index=0;
-	color=0;
         break;
     case CIB:
     case CDB:
-        hdata.data.slvnt_percent = *(double *)adata;
-	index=3;
-	color=0;
+        hdata.data.slvnt_percent = *(hplc_sint *)adata;
         break;
     case CDFLOW:
     case CIFLOW:
-        hdata.data.flow_rate = *(double *)adata;
-	index=4;
-	color=1;
+        hdata.data.flow_rate = *(hplc_sint *)adata;
         break;
+    case SUCCESS:
+    	update_metadata(&hdata.data,action,adata);
+	free(adata);
+	hplc_destroy(&hdata);
+	fclose(f);
+	return 1;
+    case SPP:
+	//TODO where does this go?
+	print_data("Changed SPP\n");
+	break;
+    case CLIG:
+    	free(hdata.data.column.clmn_phase);
+    	hdata.data.column.clmn_phase=strdup((char*)adata);
+	break;
+    case CDPS:
+    	hdata.data.column.clmn_bead_size=*(hplc_sint*)adata;
+	break;
+    case CCL:
+    	hdata.data.column.clmn_length=*(hplc_sint*)adata;
+	break;
     default:
-        break;
+    	print_error("Option not recognised:%s\n",resolve_action_name(action));
+        return 0;
     }
     if(!hplc_run_meta_check(&hdata.data,&new_pk))
-	update_metadata(&hdata.data,index,color);
+	update_metadata(&hdata.data,action,adata);
     else{
     	add_run(new_pk);
 	free(new_pk);
@@ -926,7 +939,7 @@ int main(int argc, char **argv) {
     if(!hplc_query_init())
     	return 0;
 
-    GtkApplication *gtk_app = gtk_application_new("com.engineering.station", G_APPLICATION_DEFAULT_FLAGS);
+    GtkApplication *gtk_app = gtk_application_new("edu.monash.hplc", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(gtk_app, "activate", G_CALLBACK(activate), &app);
 
     int status = g_application_run(G_APPLICATION(gtk_app), argc, argv);
@@ -936,67 +949,267 @@ int main(int argc, char **argv) {
     return status;
 }
 
-void update_metadata(struct hplc_run_metadata *m,int index,int color)
-{
-    char tmp[9][50],spec[100];
-    char*markup;
-    char*colors[]={
-    "<span foreground=\"lime\">%s</span>",
-    "<span foreground=\"cyan\">%s</span>",
-    "<span foreground=\"orange\">%s</span>"
+typedef struct {
+    GMainLoop *loop;
+    enum selectivity_action action;
+    bool selected;
+} MultiMenuContext;
+
+
+static void on_option_button_clicked(GtkButton *button, gpointer user_data) {
+    GtkWidget *window = GTK_WIDGET(user_data);
+    MultiMenuContext *ctx = (MultiMenuContext *)g_object_get_data(G_OBJECT(button), "menu_ctx");
+    const struct action_arg *choice = (const struct action_arg *)g_object_get_data(G_OBJECT(button), "choice_str");
+
+    // Resolve selectivity_action using the selected string
+    if (choice) {
+        ctx->action = choice->action;
+        ctx->selected = true;
+    }
+
+    // Destroy window, which fires the 'destroy' signal to quit the main loop
+    gtk_window_destroy(GTK_WINDOW(window));
+}
+
+static void on_window_destroy(GtkWidget *widget, gpointer user_data) {
+    MultiMenuContext *ctx = (MultiMenuContext *)user_data;
+    if (ctx->loop && g_main_loop_is_running(ctx->loop)) {
+        g_main_loop_quit(ctx->loop);
+    }
+}
+
+enum selectivity_action multi_menu(void *adata) {
+     struct action_arg*options = adata;
+    if (!options){ 
+        return 0; // Fallback default action if data is empty
+    }
+
+    MultiMenuContext ctx = {
+        .loop = g_main_loop_new(NULL, FALSE),
+        .action = 0,
+        .selected = false
     };
 
+    // Construct modal prompt window
+    GtkWidget *window = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(window), "Select Action");
+    gtk_window_set_modal(GTK_WINDOW(window), TRUE);
+    gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
 
-    dash_table[0][1] = m->slvnt;
-    snprintf(tmp[0], sizeof(tmp[0]), "%f", m->pH);
-    dash_table[1][1] = tmp[0];
-    dash_table[2][1]=(char*)hplc_run_type_str(m->type);
-    snprintf(tmp[1], sizeof(tmp[1]), "%f", m->slvnt_percent);
-    dash_table[3][1] = tmp[1];
-    snprintf(tmp[2], sizeof(tmp[2]), "%f", m->flow_rate);
-    dash_table[4][1] = tmp[2];
-    dash_table[5][1] = m->njctn_volume;
-    dash_table[6][1] = m->njctn_type;
-    snprintf(tmp[3], sizeof(tmp[3]), "%f", m->sample_conc);
-    dash_table[7][1] = tmp[3];
-    snprintf(tmp[4], sizeof(tmp[4]), "%s %s", m->clmn_phase, hplc_clmn_brand_str(m->brand));
-    dash_table[8][1] = tmp[4];
+    g_signal_connect(window, "destroy", G_CALLBACK(on_window_destroy), &ctx);
 
-    snprintf(tmp[5], sizeof(tmp[5]), "%.3fx%.2fx%.2f", m->clmn_length, m->clmn_id, m->clmn_bead_size);
-    dash_table[9][1] = tmp[5];
-    snprintf(tmp[6], sizeof(tmp[6]), "%.2f", m->temperature);
-    dash_table[10][1] = tmp[6];
-    snprintf(tmp[7], sizeof(tmp[7]), "%d", m->wavelength);
-    dash_table[11][1] = tmp[7];
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_start(vbox, 16);
+    gtk_widget_set_margin_end(vbox, 16);
+    gtk_widget_set_margin_top(vbox, 16);
+    gtk_widget_set_margin_bottom(vbox, 16);
+    gtk_window_set_child(GTK_WINDOW(window), vbox);
 
-    if(index<0){
-    	update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+    GtkWidget *label = gtk_label_new("Multiple actions available. Please select one:");
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(vbox), label);
+
+    // Iterating over NULL-terminated array of strings
+    for (int i = 0; options[i].action != END; i++) {
+    	char*tmp;
+
+	tmp=action_arg_str(options[i]);
+        GtkWidget *btn = gtk_button_new_with_label(tmp);
+
+        // Attach references to context and choice string
+        g_object_set_data(G_OBJECT(btn), "menu_ctx", &ctx);
+        g_object_set_data(G_OBJECT(btn), "choice_str", &options[i]);
+
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_option_button_clicked), window);
+        gtk_box_append(GTK_BOX(vbox), btn);
+	free(tmp);
     }
-    else{
-    	char*original=dash_table[index][1];
 
-	markup = g_markup_printf_escaped (colors[color], dash_table[index][1]);
-	//printf("markup:%s\n",markup);
-	dash_table[index][1]=markup;
+    gtk_window_present(GTK_WINDOW(window));
 
-	update_screen1_table_data(&app, (const char * (*)[2])dash_table);
-	g_free (markup);
-	dash_table[index][1]=original;
+    // Block local execution until user clicks an option or closes the dialog
+    g_main_loop_run(ctx.loop);
+    g_main_loop_unref(ctx.loop);
+
+    return ctx.action;
+}
+void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action, void *adata)
+{
+    char tmp_brand[100];
+    char tmp_dims[100];
+    char tmp_wavelength[32];
+    
+    char *colors[] = {
+        "<span foreground=\"lime\">%s</span>",
+        "<span foreground=\"cyan\">%s</span>",
+        "<span foreground=\"orange\">%s</span>"
+    };
+    int index = -1, color = 0, start = 0, end = -1;
+
+    if (action == MULTI) {
+        action = multi_menu(adata);
     }
+
+    // Handle SUCCESS action: clear column 1, set topmost cell to "Success"
+    if (action == SUCCESS) {
+        dash_table[0][1] = "Success";
+        for (int i = 1; i < 12; i++) {
+            dash_table[i][1] = "";
+        }
+        update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+        return;
+    }
+
+    // Action handling and data updates
+    switch (action) {
+    case CITEMP:
+    case CDTEMP:
+        m->temperature = *(hplc_sint *)adata;
+        index = 10;
+        color = 2;
+        end = -1;
+        break;
+    case CSOL:
+        m->slvnt = (char *)adata;
+        index = 0;
+        color = 0;
+        end = -1;
+        break;
+    case CIB:
+    case CDB:
+        m->slvnt_percent = *(hplc_sint *)adata;
+        index = 3;
+        color = 0;
+        end = -1;
+        break;
+    case CDFLOW:
+    case CIFLOW:
+        m->flow_rate = *(hplc_sint *)adata;
+        index = 4;
+        color = 1;
+        end = -1;
+        break;
+    case SPP:
+        color = 1;
+        print_data("Changed SPP\n");
+        break;
+    case CLIG:
+        color = 0;
+        index = 8;
+        break;
+    case CDPS:
+    case CCL:
+        color = 1;
+        index = 9;
+        break;
+    default:
+        print_error("Option not recognised:%s\n", resolve_action_name(action));
+        break;
+    }
+
+    // Convert hplc_sint values to heap-allocated strings
+    char *str_ph   = hplc_sint_str(m->pH);
+    char *str_sp   = hplc_sint_str(m->slvnt_percent);
+    char *str_fr   = hplc_sint_str(m->flow_rate);
+    char *str_sc   = hplc_sint_str(m->sample_conc);
+    char *str_temp = hplc_sint_str(m->temperature);
+    char *str_brand= hplc_clmn_brand_str(m->column.brand);
+
+    // Convert dimension hplc_sint values
+    char *s_len  = hplc_sint_str(m->column.clmn_length);
+    char *s_id   = hplc_sint_str(m->column.clmn_id);
+    char *s_bead = hplc_sint_str(m->column.clmn_bead_size);
+
+    // Format composite strings
+    snprintf(tmp_brand, sizeof(tmp_brand), "%s %s", m->column.clmn_phase,str_brand);
+    snprintf(tmp_dims, sizeof(tmp_dims), "%sx%sx%s", s_len, s_id, s_bead);
+    snprintf(tmp_wavelength, sizeof(tmp_wavelength), "%d", m->wavelength);
+
+    // Free dimension string temporaries
+    free(s_len);
+    free(s_id);
+    free(s_bead);
+
+    // Populate table cells
+    dash_table[0][1]  = m->slvnt;
+    dash_table[1][1]  = str_ph;
+    dash_table[2][1]  = (char *)hplc_run_type_str(m->type);
+    dash_table[3][1]  = str_sp;
+    dash_table[4][1]  = str_fr;
+    dash_table[5][1]  = m->njctn_volume;
+    dash_table[6][1]  = m->njctn_type;
+    dash_table[7][1]  = str_sc;
+    dash_table[8][1]  = tmp_brand;
+    dash_table[9][1]  = tmp_dims;
+    dash_table[10][1] = str_temp;
+    dash_table[11][1] = tmp_wavelength;
+
+    // Apply markup/highlighting if an index was targeted
+    if (index < 0 || index >= 12) {
+        update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+    } else {
+        char *original = dash_table[index][1];
+
+        if (end == -1) {
+            // Full string highlight
+            char *markup = g_markup_printf_escaped(colors[color], original);
+            dash_table[index][1] = markup;
+            update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+            g_free(markup);
+        } else {
+            // Substring partial highlight [start, end)
+            size_t len = strlen(original);
+            if (start >= 0 && (size_t)start < len && end > start && (size_t)end <= len) {
+                char prefix[100] = {0};
+                char target[100] = {0};
+                char suffix[100] = {0};
+                char full_markup[256];
+
+                strncpy(prefix, original, start);
+                prefix[start] = '\0';
+
+                strncpy(target, original + start, end - start);
+                target[end - start] = '\0';
+
+                strncpy(suffix, original + end, sizeof(suffix) - 1);
+                suffix[sizeof(suffix) - 1] = '\0';
+
+                char *escaped_target = g_markup_printf_escaped(colors[color], target);
+                snprintf(full_markup, sizeof(full_markup), "%s%s%s", prefix, escaped_target, suffix);
+
+                dash_table[index][1] = full_markup;
+                update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+                g_free(escaped_target);
+            } else {
+                update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+            }
+        }
+        dash_table[index][1] = original;
+    }
+
+    // Clean up heap allocations from hplc_sint_str
+    free(str_ph);
+    free(str_sp);
+    free(str_fr);
+    free(str_sc);
+    free(str_temp);
+    free(str_brand);
 }
 void update_bench(struct benchmarks*ben)
 {
-	char tmp[4][50];
+	char tmp[2][50],*tmp1[2];
 	
 	snprintf(tmp[0],sizeof(tmp[0]),"%d",ben->peaks);
-	snprintf(tmp[1],sizeof(tmp[1]),"%.4f",ben->resolution);
-	snprintf(tmp[2],sizeof(tmp[2]),"%.4f",ben->runtime);
-	snprintf(tmp[3],sizeof(tmp[3]),"%d",ben->backpressure);
+	tmp1[0]=hplc_sint_str(ben->resolution);
+	tmp1[1]=hplc_sint_str(ben->runtime);
+	snprintf(tmp[1],sizeof(tmp[3]),"%d",ben->backpressure);
 
 	bench_table[0][1]=tmp[0];
-	bench_table[1][1]=tmp[1];
-	bench_table[2][1]=tmp[2];
-	bench_table[3][1]=tmp[3];
+	bench_table[1][1]=tmp1[0];
+	bench_table[2][1]=tmp1[1];
+	bench_table[3][1]=tmp[1];
 
 	update_config_screen_table_data(&app,(const char*(*)[2])bench_table);
+	free(tmp1[0]);
+	free(tmp1[1]);
 }

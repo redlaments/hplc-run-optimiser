@@ -24,4 +24,5 @@ bool hplc_run_check(char*pk);
 bool hplc_run_meta_check(struct hplc_run_metadata*data,char**pk);
 /*checks if column is present in db*/
 bool hplc_run_col_check(char*col);
+
 #endif

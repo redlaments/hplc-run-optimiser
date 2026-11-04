@@ -8,6 +8,7 @@
 #include "query.h"
 #include "run-db.h"
 #include "lib/metadata.h"
+#include "cli.h"
 
 /* Global database handle assumed from calling environment */
 bool hplc_run_add(struct hplc_run_metadata *data, char *pk)
@@ -15,6 +16,7 @@ bool hplc_run_add(struct hplc_run_metadata *data, char *pk)
 	int ret;
 	sqlite3_stmt *pStmt;
 	char temp_buf[32];
+	struct hplc_column*clmn=&data->column;
 	char *sql = "insert into hplc_run values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
 	if (!data || !pk) {
@@ -41,18 +43,19 @@ bool hplc_run_add(struct hplc_run_metadata *data, char *pk)
 	sqlite3_bind_text(pStmt, 7, data->njctn_volume, -1, SQLITE_STATIC);
 	sqlite3_bind_text(pStmt, 8, data->njctn_type, -1, SQLITE_STATIC);
 	sqlite3_bind_double(pStmt, 9, data->sample_conc);
-	sqlite3_bind_text(pStmt, 10, data->clmn_phase, -1, SQLITE_STATIC);
-	sqlite3_bind_int(pStmt, 11, (int)data->brand);
-	sqlite3_bind_double(pStmt, 12, data->clmn_length);
-	sqlite3_bind_double(pStmt, 13, data->clmn_id);
-	sqlite3_bind_double(pStmt, 14, data->clmn_bead_size);
+	sqlite3_bind_text(pStmt, 10, clmn->clmn_phase, -1, SQLITE_STATIC);
+	sqlite3_bind_int(pStmt, 11, (int)clmn->brand);
+	sqlite3_bind_double(pStmt, 12, clmn->clmn_length);
+	sqlite3_bind_double(pStmt, 13, clmn->clmn_id);
+	sqlite3_bind_double(pStmt, 14, clmn->clmn_bead_size);
 
 	/* Column 15: temperature (stored as text in DB) */
-	if(isnan(data->temperature))
+	if(data->temperature==AMB)
 		sqlite3_bind_text(pStmt, 15,"amb", -1, SQLITE_TRANSIENT);
 	else{
-		snprintf(temp_buf, sizeof(temp_buf), "%f", data->temperature);
-		sqlite3_bind_text(pStmt, 15, temp_buf, -1, SQLITE_TRANSIENT);
+		char*tmp_temp=hplc_sint_str(data->temperature);
+		sqlite3_bind_text(pStmt, 15, tmp_temp, -1, SQLITE_TRANSIENT);
+		free(tmp_temp);
 	}
 
 	/* Column 16: wave (stored as wave integer in DB) */
@@ -95,6 +98,7 @@ bool hplc_run_retrive(struct hplc_run_metadata *data, char *pk)
 	int ret;
 	sqlite3_stmt *pStmt;
 	const unsigned char *txt;
+	struct hplc_column*clmn=&data->column;
 	char *sql = "select grid,slvnt,ph,type,slvnt_percent,flow_rate,njctn_volume,"
 		    "njctn_type,sample_conc,clmn_phase,brand,clmn_length,clmn_id,"
 		    "clmn_bead_size,temperature,wave from hplc_run where grid=?";
@@ -108,7 +112,6 @@ bool hplc_run_retrive(struct hplc_run_metadata *data, char *pk)
 	data->slvnt = NULL;
 	data->njctn_volume = NULL;
 	data->njctn_type = NULL;
-	data->clmn_phase = NULL;
 
 	ret = sqlite3_prepare_v2(pDb, sql, -1, &pStmt, NULL);
 	if (ret != SQLITE_OK) {
@@ -137,10 +140,10 @@ bool hplc_run_retrive(struct hplc_run_metadata *data, char *pk)
 		}
 	}
 
-	data->pH = sqlite3_column_double(pStmt, 2);
+	data->pH = sqlite3_column_int(pStmt, 2);
 	data->type = (enum hplc_run_type)sqlite3_column_int(pStmt, 3);
-	data->slvnt_percent = sqlite3_column_double(pStmt, 4);
-	data->flow_rate = sqlite3_column_double(pStmt, 5);
+	data->slvnt_percent = sqlite3_column_int(pStmt, 4);
+	data->flow_rate = sqlite3_column_int(pStmt, 5);
 
 	/* Retrieve njctn_volume */
 	txt = sqlite3_column_text(pStmt, 6);
@@ -167,17 +170,17 @@ bool hplc_run_retrive(struct hplc_run_metadata *data, char *pk)
 	/* Retrieve clmn_phase */
 	txt = sqlite3_column_text(pStmt, 9);
 	if (txt) {
-		data->clmn_phase = strdup((const char *)txt);
-		if (!data->clmn_phase) {
+		clmn->clmn_phase = strdup((const char *)txt);
+		if (!data->column.clmn_phase) {
 			fprintf(stderr, "hplc_run_retrive: memory allocation failed for clmn_phase\n");
 			goto fail;
 		}
 	}
 
-	data->brand = (enum hplc_clmn_brand)sqlite3_column_int(pStmt, 10);
-	data->clmn_length = sqlite3_column_double(pStmt, 11);
-	data->clmn_id = sqlite3_column_double(pStmt, 12);
-	data->clmn_bead_size = sqlite3_column_double(pStmt, 13);
+	clmn->brand = sqlite3_column_int(pStmt, 10);
+	clmn->clmn_length = sqlite3_column_double(pStmt, 11);
+	clmn->clmn_id = sqlite3_column_double(pStmt, 12);
+	clmn->clmn_bead_size = sqlite3_column_double(pStmt, 13);
 
 	/* Convert text back to double for temperature */
 	txt = sqlite3_column_text(pStmt, 14);
@@ -202,9 +205,9 @@ fail:
 		free(data->njctn_type);
 		data->njctn_type = NULL;
 	}
-	if (data->clmn_phase) {
-		free(data->clmn_phase);
-		data->clmn_phase = NULL;
+	if (clmn->clmn_phase) {
+		free(clmn->clmn_phase);
+		clmn->clmn_phase = NULL;
 	}
 	sqlite3_finalize(pStmt);
 	return false;
@@ -288,6 +291,7 @@ bool hplc_run_table_row(sqlite3_stmt *pStmt, char ***pdata)
 			row[k]=malloc(sizeof(char)*++size);
 			snprintf(row[k],size,"%s %s",txt,tmp);
 			row[k][size-1]='\0';
+			free(tmp);
 			continue;
 		}
 		if(i==11){
@@ -370,6 +374,7 @@ bool hplc_run_meta_check(struct hplc_run_metadata* data, char** pk)
 {
         int ret;
         sqlite3_stmt* pStmt;
+	struct hplc_column*clmn=&data->column;
 
         if (!data) {
                 fprintf(stderr, "Error [hplc_run_meta_check]: Input metadata struct is NULL.\n");
@@ -378,10 +383,19 @@ bool hplc_run_meta_check(struct hplc_run_metadata* data, char** pk)
 
         // Format double temperature to string as stored in DB
         char temp_str[64];
-	if(isnan(data->temperature))
+	if(data->temperature==AMB)
 		strcpy(temp_str,"amb");
-	else
-	        snprintf(temp_str, sizeof(temp_str), "%.2f", data->temperature);
+	else{
+		char*tmp_temp=hplc_sint_str(data->temperature);
+		if(sizeof(temp_str)<strlen(tmp_temp)+1){
+			print_error(
+			"hplc_run_meta_check:buffer overflow of temperature\n");
+			free(tmp_temp);
+			return false;
+		}
+		strcpy(temp_str,tmp_temp);
+		free(tmp_temp);
+	}
 
         const char *sql =
                 "SELECT grid FROM hplc_run WHERE "
@@ -434,16 +448,16 @@ bool hplc_run_meta_check(struct hplc_run_metadata* data, char** pk)
 
         sqlite3_bind_double(pStmt, 8, data->sample_conc);
 
-        if (data->clmn_phase) {
-                sqlite3_bind_text(pStmt, 9, data->clmn_phase, -1, SQLITE_STATIC);
+        if (data->column.clmn_phase) {
+                sqlite3_bind_text(pStmt, 9, data->column.clmn_phase, -1, SQLITE_STATIC);
         } else {
                 sqlite3_bind_null(pStmt, 9);
         }
 
-        sqlite3_bind_int(pStmt, 10, (int)data->brand);
-        sqlite3_bind_double(pStmt, 11, data->clmn_length);
-        sqlite3_bind_double(pStmt, 12, data->clmn_id);
-        sqlite3_bind_double(pStmt, 13, data->clmn_bead_size);
+        sqlite3_bind_int(pStmt, 10, (int)clmn->brand);
+        sqlite3_bind_double(pStmt, 11, clmn->clmn_length);
+        sqlite3_bind_double(pStmt, 12, clmn->clmn_id);
+        sqlite3_bind_double(pStmt, 13, clmn->clmn_bead_size);
         sqlite3_bind_text(pStmt, 14, temp_str, -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(pStmt, 15, data->wavelength);
 
@@ -472,11 +486,6 @@ bool hplc_run_meta_check(struct hplc_run_metadata* data, char** pk)
         sqlite3_finalize(pStmt);
         return matched;
 }
-#include <sqlite3.h>
-#include <stdbool.h>
-
-extern sqlite3 *db; // Assumes 'db' is your active SQLite database connection handle
-
 bool hplc_run_col_check(char *col)
 {
     int ret;

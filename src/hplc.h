@@ -2,6 +2,7 @@
 #define HPLC_H
 
 #include <time.h>
+#include "hplc-types.h"
 #include "../config.h"
 
 struct hplc_csv_header{
@@ -17,46 +18,46 @@ struct hplc_csv_original{
         char*report_format_file;
 };
 struct hplc_csv_peak{
-        double rtime;
-        double itime;
-        double ftime;
+        hplc_sint rtime;
+        hplc_sint itime;
+        hplc_sint ftime;
         long area;
         long height;
-        double ah;
-        double conc;
+        hplc_sint ah;
+        hplc_sint conc;
         char*mark;
         char*id;
         char*name;
-        double k;
+        hplc_sint k;
         long plate;
-        double plate_height;
-        double tailing;
-        double resolution;
-        double sep_factor;
-        double area_ratio;
-        double height_ratio;
-        double concp;
-        double norm_conc;
+        hplc_sint plate_height;
+        hplc_sint tailing;
+        hplc_sint resolution;
+        hplc_sint sep_factor;
+        hplc_sint area_ratio;
+        hplc_sint height_ratio;
+        hplc_sint concp;
+        hplc_sint norm_conc;
 };
 struct hplc_csv_chromatogram{
         int interval;/*msec*/
         int points;//number of values for both rtime and intensity
-        double start;/*min*/
-        double end;/*min*/
+        hplc_sint start;/*min*/
+        hplc_sint end;/*min*/
         char*units;
-        double multiplier;
+        hplc_sint multiplier;
         int wavelength;/*nm*/
-        double*rtime;
+        hplc_sint*rtime;
         int*intensity;
 };
 struct hplc_csv_pump{
 	int itime;/*interval(msec)*/
-	double stime;/*start time*/
-	double etime;/*end time*/
+	hplc_sint stime;/*start time*/
+	hplc_sint etime;/*end time*/
 	char*iunits;/*intensity Units*/
-	double imult;/*intensity multipier*/
-	double*rtime;
-	double*intensity;
+	hplc_sint imult;/*intensity multipier*/
+	hplc_sint*rtime;
+	hplc_sint*intensity;
 	int points;/*number of values for both rtime and intensity*/
 };
 
@@ -70,21 +71,24 @@ struct hplc_csv{
 	int pump_count;
 	char*hplc_file_data;//csv data struct points to this
 };
+struct hplc_column{
+	char*clmn_phase;
+	int brand;
+	hplc_sint clmn_length;
+	hplc_sint clmn_id;
+	hplc_sint clmn_bead_size;
+};
 struct hplc_run_metadata{
 	char*slvnt;
-	double pH;
+	hplc_sint pH;
 	enum hplc_run_type type;
-	double slvnt_percent;
-	double flow_rate;
+	hplc_sint slvnt_percent;
+	hplc_sint flow_rate;
 	char*njctn_volume;
 	char*njctn_type;
-	double sample_conc;
-	char*clmn_phase;
-	enum hplc_clmn_brand brand;
-	double clmn_length;
-	double clmn_id;
-	double clmn_bead_size;
-	double temperature;//stored in db as text
+	hplc_sint sample_conc;
+	struct hplc_column column;
+	hplc_sint temperature;//stored in db as text
 	int wavelength; //stored in db as variable wave
 };
 	

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "hplc.h"
+#include "hplc-types.h"
 
 /*included for testing reasons*/
 int tokenize_str(char*str,int*i,int size,char*argv[],int argv_size);
@@ -19,8 +20,9 @@ void csv_destroy(struct hplc_csv*csv);
 bool csv_parse_file(FILE*f,struct hplc_data*hdata);
 //void csv_parse_names(char*file_name);
 
-double resolve_runtime(const struct hplc_csv*csv);
-double minimum_res(const struct hplc_csv*csv);
-double max_backpressure(const struct hplc_csv*csv);
+hplc_sint resolve_runtime(const struct hplc_csv*csv);
+hplc_sint minimum_res(const struct hplc_csv*csv);
+hplc_sint max_backpressure(const struct hplc_csv*csv);
+int resolve_peaks(const struct hplc_csv*csv);
 
 #endif

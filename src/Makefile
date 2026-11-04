@@ -1,6 +1,6 @@
 CFLAGS=-pipe -g -O0
 LDFLAGS=-lm $$(pkg-config --libs --cflags gtk4) -lsqlite3
-OBJ=csv.o file.o metadata.o logic.o hplc.o util.o
+OBJ=csv.o file.o metadata.o logic.o hplc.o util.o hplc-types.o
 GOBJ=query.o run-db.o
 INCLUDE=-I $$(pwd)
 all:$(OBJ) $(GOBJ) t1.o
@@ -10,15 +10,16 @@ cli:$(OBJ) main.o
 tool:csv.o
 	cc -c $(INCLUDE) $(CFLAGS) tool.c
 	cc csv.o tool.o -o tool
-test-gen:$(OBJ)
-	cc -c $(INCLUDE) $(CFLAGS) test-gen.c
-	cc $(CFLAGS) $(LDFLAGS) $(OBJ) test-gen.o -o test
-test-metadata:metadata.o util.o
-	cc -c $(CFLAGS) test-metadata.c
-	cc $(CFLAGS) $(LDFLAGS) metadata.o util.o test-metadata.o
+test-metadata:metadata.o util.o hplc-types.o query.o cli.o
+	cc -c $(CFLAGS) $(INCLUDE) test-metadata.c
+	cc $(CFLAGS) $(LDFLAGS) metadata.o util.o test-metadata.o hplc-types.o query.o cli.o
 test-csv:csv.o
 	cc -c $(INCLUDE) $(CFLAGS) test-csv.c
 	cc $(CFLAGS) csv.o test-csv.o 
+test-logic:logic.o hplc-types.o metadata.o cli.o query.o run-db.o util.o
+	cc -c $(INCLUDE) $(CFLAGS) test-logic.c
+	cc $(CFLAGS) $(LDFLAGS) logic.o hplc-types.o metadata.o cli.o query.o test-logic.o \
+	run-db.o util.o
 %.o:%.c
 	cc -c $(INCLUDE) $(CFLAGS) $< -o $@
 t1.o:t1.c

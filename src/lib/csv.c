@@ -17,6 +17,7 @@
 #include <ctype.h>
 #include "hplc.h"
 #include "macro.h"
+#include "hplc-types.h"
 #include "csv.h"
 
 #define SKIP_ROW(I,D,S)\
@@ -56,7 +57,7 @@ int tokenize_str(char*str,int*i,int size,char*argv[],int argv_size)
 	
 	for(;;){
 		if(argc==argv_size){
-			fprintf(stderr,"tokenize_str:argv_size reached: %d\n",argv_size);
+			//fprintf(stderr,"tokenize_str:argv_size reached: %d\n",argv_size);
 			while(*i<size&&str[*i]!='\n')
 				(*i)++;
 			(*i)++;
@@ -112,17 +113,25 @@ void csv_print_pumps(struct hplc_csv*csv)
 	struct hplc_csv_pump*pump;
 
 	for(int i=0;i<csv->pump_count;i++){
+		char*tmp,*tmp1;
+		
+		tmp=hplc_sint_str(pump->intensity[pump->points-1]);
+		tmp1=hplc_sint_str(pump->rtime[pump->points-1]);
 		pump=&csv->pumps[i];
-		printf("pump[%d][%d]:%f,%f\n",i,pump->points,
-		pump->rtime[pump->points-1],pump->intensity[pump->points-1]);
+		printf("pump[%d][%d]:%s,%s\n",i,pump->points,
+		tmp1,tmp);
+		free(tmp1);
+		free(tmp);
 	}
 }
 void csv_print_chromatogram(struct hplc_csv*csv)
 {
 	struct hplc_csv_chromatogram*chr;
+	char*tmp;
 
 	chr=&csv->chromatogram;
-	printf("chromatogram[%d]:%f,%d\n",chr->points,chr->rtime[chr->points-1],
+	tmp=hplc_sint_str(chr->rtime[chr->points-1]);
+	printf("chromatogram[%d]:%s,%d\n",chr->points,tmp,
 	chr->intensity[chr->points-1]);
 }
 void csv_print(struct hplc_csv*csv)
@@ -180,7 +189,7 @@ int handle_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv*csv
 	&csv->chromatogram.interval,
 	&csv->chromatogram.points,
 	};
-	double*var1[]={	
+	hplc_sint*var1[]={	
 	&csv->chromatogram.start,
 	&csv->chromatogram.end
 	};
@@ -209,7 +218,7 @@ int handle_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv*csv
 			fprintf(stderr,errstr[j+2],argc);
 		}
 		else
-			*var1[j]=strtod(argv[1],NULL);
+			*var1[j]=hplc_strtosi(argv[1],NULL);
 	}
 	argc=tokenize_str(data,i,size,argv,2);
 	if(argc<2){
@@ -224,7 +233,7 @@ int handle_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv*csv
 		fprintf(stderr,"chromatogram multipler has %d values!\n",argc);
 	}
 	else
-		csv->chromatogram.multiplier=strtod(argv[1],NULL);
+		csv->chromatogram.multiplier=hplc_strtosi(argv[1],NULL);
 	argc=tokenize_str(data,i,size,argv,2);
 	if(argc<2){
 		csv->chromatogram.wavelength=0;
@@ -240,7 +249,7 @@ int handle_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv*csv
 	
 	if(csv->chromatogram.points==0)
 		return -1;
-	csv->chromatogram.rtime=malloc(sizeof(double)*csv->chromatogram.points);
+	csv->chromatogram.rtime=malloc(sizeof(hplc_sint)*csv->chromatogram.points);
 	csv->chromatogram.intensity=malloc(sizeof(int)*csv->chromatogram.points);
 	for(int j=0;j<csv->chromatogram.points;j++){
 		argc=tokenize_str(data,i,size,argv,2);
@@ -251,7 +260,7 @@ int handle_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv*csv
 			csv->chromatogram.intensity[j]=0;
 		}
 		else{
-			csv->chromatogram.rtime[j]=strtod(argv[0],NULL);
+			csv->chromatogram.rtime[j]=hplc_strtosi(argv[0],NULL);
 			csv->chromatogram.intensity[j]=strtol(argv[1],NULL,10);
 		}
 		if(*i>size){
@@ -299,26 +308,26 @@ int handle_peaks(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*v
 		}
 		if((index=(int)strtol(argv[0],NULL,10)!=j+1))
 			fprintf(stderr,"peak %d has index %d\n",j+1,index);
-		csv->peaks[j].rtime=strtod(argv[1],NULL);
-		csv->peaks[j].itime=strtod(argv[2],NULL);
-		csv->peaks[j].ftime=strtod(argv[3],NULL);
+		csv->peaks[j].rtime=hplc_strtosi(argv[1],NULL);
+		csv->peaks[j].itime=hplc_strtosi(argv[2],NULL);
+		csv->peaks[j].ftime=hplc_strtosi(argv[3],NULL);
 		csv->peaks[j].area=strtol(argv[4],NULL,10);
 		csv->peaks[j].height=strtol(argv[5],NULL,10);
-		csv->peaks[j].ah=strtod(argv[6],NULL);
-		csv->peaks[j].conc=strtod(argv[7],NULL);
+		csv->peaks[j].ah=hplc_strtosi(argv[6],NULL);
+		csv->peaks[j].conc=hplc_strtosi(argv[7],NULL);
 		csv->peaks[j].mark=argv[8];
 		csv->peaks[j].id=argv[9];
 		csv->peaks[j].name=argv[10];
-		csv->peaks[j].k=strtod(argv[11],NULL);
+		csv->peaks[j].k=hplc_strtosi(argv[11],NULL);
 		csv->peaks[j].plate=strtol(argv[12],NULL,10);
-		csv->peaks[j].plate_height=strtod(argv[13],NULL);
-		csv->peaks[j].tailing=strtod(argv[14],NULL);
-		csv->peaks[j].resolution=strtod(argv[15],NULL);
-		csv->peaks[j].sep_factor=strtod(argv[16],NULL);
-		csv->peaks[j].area_ratio=strtod(argv[17],NULL);
-		csv->peaks[j].height_ratio=strtod(argv[18],NULL);
-		csv->peaks[j].concp=strtod(argv[19],NULL);
-		csv->peaks[j].norm_conc=strtod(argv[20],NULL);
+		csv->peaks[j].plate_height=hplc_strtosi(argv[13],NULL);
+		csv->peaks[j].tailing=hplc_strtosi(argv[14],NULL);
+		csv->peaks[j].resolution=hplc_strtosi(argv[15],NULL);
+		csv->peaks[j].sep_factor=hplc_strtosi(argv[16],NULL);
+		csv->peaks[j].area_ratio=hplc_strtosi(argv[17],NULL);
+		csv->peaks[j].height_ratio=hplc_strtosi(argv[18],NULL);
+		csv->peaks[j].concp=hplc_strtosi(argv[19],NULL);
+		csv->peaks[j].norm_conc=hplc_strtosi(argv[20],NULL);
 	}
 	while(*i<size&&data[*i]!='[')
 		(*i)++;
@@ -468,13 +477,13 @@ int handle_pump(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*va
 	if(argc<2)
 		pump->stime=0;
 	else
-		pump->stime=strtod(argv[1],NULL);
+		pump->stime=hplc_strtosi(argv[1],NULL);
 	
 	argc=tokenize_str(data,i,size,argv,2);
 	if(argc<2)
 		pump->etime=0;
 	else
-		pump->etime=strtod(argv[1],NULL);
+		pump->etime=hplc_strtosi(argv[1],NULL);
 
 	argc=tokenize_str(data,i,size,argv,2);
 	if(argc<2)
@@ -486,15 +495,15 @@ int handle_pump(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*va
 	if(argc<2)
 		pump->imult=0;
 	else
-		pump->imult=strtod(argv[1],NULL);
+		pump->imult=hplc_strtosi(argv[1],NULL);
 	
 	while(data[*i]!='\n'&&data[*i]!='\0')
 		(*i)++;
 	if(data[*i]=='\0')
 		return -1;
 	(*i)++;
-	pump->rtime=malloc(sizeof(double)*pump->points);
-	pump->intensity=malloc(sizeof(double)*pump->points);
+	pump->rtime=malloc(sizeof(hplc_sint)*pump->points);
+	pump->intensity=malloc(sizeof(hplc_sint)*pump->points);
 	if(!pump->rtime||!pump->intensity){
 		if(pump->rtime)
 			free(pump->rtime);
@@ -516,8 +525,8 @@ int handle_pump(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*va
 			pump->intensity[j]=0;
 		}
 		else{
-			pump->rtime[j]=strtod(argv[0],NULL);
-			pump->intensity[j]=strtod(argv[1],NULL);
+			pump->rtime[j]=hplc_strtosi(argv[0],NULL);
+			pump->intensity[j]=hplc_strtosi(argv[1],NULL);
 		}
 	}
 	while(data[*i]!='['&&data[*i]!='\0')
@@ -592,7 +601,7 @@ int handle_pda_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv
 		chr->start=0;
 	}
 	else
-		chr->start=strtod(argv[1],NULL);
+		chr->start=hplc_strtosi(argv[1],NULL);
 	
 	argc=tokenize_str(data,i,size,argv,max_arg);
 	if(argc!=2){
@@ -601,7 +610,7 @@ int handle_pda_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv
 		chr->end=0;
 	}
 	else
-		chr->end=strtod(argv[1],NULL);
+		chr->end=hplc_strtosi(argv[1],NULL);
 	
 	argc=tokenize_str(data,i,size,argv,max_arg);
 	if (argc != 2) {
@@ -616,7 +625,7 @@ int handle_pda_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv
 	    fprintf(stderr, "%d args for intensity multiplier, expected %d\n", argc, max_arg);
 	    chr->multiplier = 1.0;
 	} else {
-	    chr->multiplier = strtod(argv[1], NULL);
+	    chr->multiplier = hplc_strtosi(argv[1], NULL);
 	}
 	SKIP_ROW(*i,data,size);
 	argc=tokenize_str(data,i,size,argv,max_arg);
@@ -628,7 +637,7 @@ int handle_pda_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv
 	}
 	SKIP_ROW(*i,data,size);
 	SKIP_ROW(*i,data,size);
-	chr->rtime=malloc(sizeof(double)*chr->points);
+	chr->rtime=malloc(sizeof(hplc_sint)*chr->points);
 	chr->intensity=malloc(sizeof(int)*chr->points);
 	if(!chr->rtime||!chr->intensity){
 		fprintf(stderr,"rtime or intensity failed to malloc\n");
@@ -643,7 +652,7 @@ int handle_pda_chromatogram(char*args[],char*data,int*i,int size,struct hplc_csv
                         chr->intensity[j]=0;
                 }
                 else{
-                        chr->rtime[j]=strtod(argv[0],NULL);
+                        chr->rtime[j]=hplc_strtosi(argv[0],NULL);
                         chr->intensity[j]=strtol(argv[1],NULL,10);
                 }
                 if(*i>size){
@@ -910,29 +919,15 @@ bool csv_parse_name(char*file,struct hplc_data*hdata)
  * @param data Pointer to the target hplc_data struct.
  * @return Total runtime in minutes (end - start), or -1.0 on invalid input.
  */
-double resolve_runtime(const struct hplc_csv *csv)
+hplc_sint resolve_runtime(const struct hplc_csv *csv)
 {
-    if (csv == NULL) {
-        return -1.0;
-    }
-    
     // Calculates total run duration using the start and end timestamps from chromatogram metadata
     return csv->chromatogram.end - csv->chromatogram.start;
 }
 
-/**
- * Resolves the minimum peak resolution present across all identified chromatogram peaks.
- *
- * @param data Pointer to the target hplc_data struct.
- * @return Smallest peak resolution value found, or -1.0 if no peaks exist or pointer is NULL.
- */
-double minimum_res(const struct hplc_csv*csv)
+hplc_sint minimum_res(const struct hplc_csv*csv)
 {
-    if (csv == NULL || csv->peaks == NULL || csv->peak_count <= 0) {
-        return -1.0;
-    }
-
-    double min_resolution = DBL_MAX;
+    hplc_sint min_resolution = 0;
 
     for (int i = 0; i < csv->peak_count; i++) {
         if (csv->peaks[i].resolution < min_resolution) { //
@@ -949,13 +944,9 @@ double minimum_res(const struct hplc_csv*csv)
  * @param data Pointer to the target hplc_data struct[cite: 1].
  * @return Highest pressure value encountered, or -1.0 if no pump data exists or pointer is NULL.
  */
-double max_backpressure(const struct hplc_csv*csv)
+hplc_sint max_backpressure(const struct hplc_csv*csv)
 {
-    if (csv== NULL || csv->pumps == NULL || csv->pump_count <= 0) {
-        return -1.0;
-    }
-
-    double max_pressure = -DBL_MAX;
+    hplc_sint max_pressure = 0;
     bool data_found = false;
 
     for (int p = 0; p < csv->pump_count; p++) {
@@ -969,7 +960,7 @@ double max_backpressure(const struct hplc_csv*csv)
         double mult = (pump->imult != 0.0) ? pump->imult : 1.0; //[cite: 1]
 
         for (int i = 0; i < pump->points; i++) {
-            double current_pressure = pump->intensity[i] * mult; //[cite: 1]
+            hplc_sint current_pressure = pump->intensity[i] * mult; //[cite: 1]
             if (current_pressure > max_pressure) {
                 max_pressure = current_pressure;
             }
@@ -978,4 +969,8 @@ double max_backpressure(const struct hplc_csv*csv)
     }
 
     return data_found ? max_pressure : -1.0;
+}
+int resolve_peaks(const struct hplc_csv*csv)
+{
+	return csv->peak_count;
 }

@@ -20,7 +20,13 @@ CDPS,//particle size
 CIB,
 CDB,
 CDFLOW,
-CIFLOW
+CIFLOW,
+/*GRA*/
+CMTG,
+CDVTG,
+CMFLOW,
+CIBE,
+KGS
 };
 struct benchmarks{
         int peaks;
@@ -44,4 +50,7 @@ enum selectivity_action logic(struct hplc_data*data,struct benchmarks*bench,void
 const char*resolve_action_name(enum selectivity_action action);
 /*fill chr with current run data*/
 bool predicted_chr(struct pred_chr*chr,enum selectivity_action action,void*old,void*new);
+
+enum selectivity_action
+gra_logic(struct hplc_data*data,struct benchmarks*bench,void**action_data);
 #endif

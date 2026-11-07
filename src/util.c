@@ -29,11 +29,12 @@ int tokenize_str1(char*str,char*argv[],int argv_size,char delimiter)
 	}
 	return argc;
 }
+#ifdef LOGIC_H
 char*action_arg_str(struct action_arg arg)
 {
 	char*action,*tmp,*buf;
 
-	action=resolve_action_name(arg.action);
+	action=(char*)resolve_action_name(arg.action);
 	if(arg.action==MULTI||arg.action==SMULT){
 		print_error("Multi choice selected\n");
 		return strdup(action);
@@ -50,3 +51,4 @@ char*action_arg_str(struct action_arg arg)
 		return buf;
 	}
 }
+#endif

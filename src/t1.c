@@ -106,7 +106,7 @@ int add_run(char *input)
         break;
     case CIB:
     case CDB:
-        hdata.data.slvnt_percent = *(hplc_sint *)adata;
+        hdata.data.run.iso.slvnt_percent = *(hplc_sint *)adata;
         break;
     case CDFLOW:
     case CIFLOW:
@@ -240,10 +240,10 @@ static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
     }
 };
 
-#define DB_TABLE_COLS 13
+#define DB_TABLE_COLS 12
 
 static const char *const DB_HEADERS[DB_TABLE_COLS] = {
-    "Primary Key","Solvent","pH","Run Type","%B","Flow Rate","Injection Volume","Injection Type","Sample Concentration","Column Type","Dimensions","Temperature","Wavelength"
+    "Primary Key","Solvent","pH","Run Type","Flow Rate","Injection Volume","Injection Type","Sample Concentration","Column Type","Dimensions","Temperature","Wavelength"
 };
 
 // ============================================================================
@@ -1023,6 +1023,7 @@ enum selectivity_action multi_menu(void *adata) {
         g_signal_connect(btn, "clicked", G_CALLBACK(on_option_button_clicked), window);
         gtk_box_append(GTK_BOX(vbox), btn);
 	free(tmp);
+	free(options[i].arg);
     }
 
     gtk_window_present(GTK_WINDOW(window));
@@ -1047,6 +1048,7 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
     int index = -1, color = 0, start = 0, end = -1;
 
     if (action == MULTI) {
+    	/*frees adata args*/
         action = multi_menu(adata);
     }
 
@@ -1077,7 +1079,7 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
         break;
     case CIB:
     case CDB:
-        m->slvnt_percent = *(hplc_sint *)adata;
+        m->run.slvnt_percent = *(hplc_sint *)adata;
         index = 3;
         color = 0;
         end = -1;

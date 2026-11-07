@@ -11,6 +11,8 @@ bool hplc_metadata(char*file_name,struct hplc_run_metadata*data);
 void hplc_metadata_print(struct hplc_run_metadata*data);
 const char*hplc_run_type_str(enum hplc_run_type type);
 char*hplc_clmn_brand_str(int brand);
+/*puts valid id in clmn.id and returns true*/
+bool hplc_column_id(struct hplc_column *clmn);
 
 /*returns the length of the next longest column with current specifications
  * otherwise returns 0*/

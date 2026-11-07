@@ -59,22 +59,22 @@ bool hplc_brand_id(char s, int *id)
     sqlite3_finalize(pstmt);
     return found;
 }
-bool hplc_metadata_column(char*argv[],struct hplc_column*data)
+bool hplc_metadata_column(char*argv[],int*index,struct hplc_column*data)
 {
-	char c=argv[11][strlen(argv[11])-1];
-	argv[11][strlen(argv[11])-1]='\0';
+	char c=argv[*index][strlen(argv[*index])-1];
+	argv[*index][strlen(argv[*index])-1]='\0';
 	
 	if(!hplc_brand_id(c,&data->brand)){
 		print_error("Brand short %c not valid\n",c);
 		return false;
 	}
 	
-	data->clmn_phase=strdup(argv[11]);
+	data->clmn_phase=strdup(argv[(*index)++]);
 	
 	char*argv1[3],*tail=NULL;
 	int argc;
 
-	argc=tokenize_str1(argv[12],argv1,3,'x');
+	argc=tokenize_str1(argv[(*index)++],argv1,3,'x');
 	if(argc!=3){
 		fprintf(stderr,"Column:have %d args,expected 3\n",argc);
 		return false;
@@ -92,58 +92,140 @@ bool hplc_metadata_column(char*argv[],struct hplc_column*data)
 		fprintf(stderr,"Column bead size tail:%s\n",tail);
 		tail=NULL;
 	}
+	if(!hplc_column_id(data))
+		return false;
 	return true;
+}
+bool hplc_column_id(struct hplc_column *clmn)
+{
+        int ret;
+        sqlite3_stmt *pstmt = NULL;
+        const char *sql = "select id from hplc_columns where brand=? and length=? and "
+                          "diameter=? and ps=? and lig=?";
+
+
+        // Prepare SQL statement
+        ret = sqlite3_prepare_v2(pDb, sql, -1, &pstmt, NULL);
+        if (ret != SQLITE_OK) {
+                return false;
+        }
+
+        // Bind input criteria:
+        // ?1 = brand    -> clmn->brand
+        // ?2 = length   -> clmn->clmn_length
+        // ?3 = diameter -> clmn->clmn_id
+        // ?4 = ps       -> clmn->clmn_bead_size
+        // ?5 = lig      -> clmn->clmn_phase
+        if (sqlite3_bind_int(pstmt, 1, (int)clmn->brand) != SQLITE_OK ||
+            sqlite3_bind_int64(pstmt, 2, (sqlite3_int64)clmn->clmn_length) != SQLITE_OK ||
+            sqlite3_bind_int64(pstmt, 3, (sqlite3_int64)clmn->clmn_id) != SQLITE_OK ||
+            sqlite3_bind_int64(pstmt, 4, (sqlite3_int64)clmn->clmn_bead_size) != SQLITE_OK ||
+            sqlite3_bind_text(pstmt, 5, clmn->clmn_phase, -1, SQLITE_STATIC) != SQLITE_OK) {
+                sqlite3_finalize(pstmt);
+                return false;
+        }
+
+        ret = sqlite3_step(pstmt);
+        if (ret == SQLITE_ROW) {
+                clmn->id = sqlite3_column_int(pstmt, 0);
+        }
+
+        sqlite3_finalize(pstmt);
+        return true;
 }
 bool hplc_metadata(char*file_name,struct hplc_run_metadata*data)
 {
 	char*argv[NAME_MAX_ARGS],*tail=NULL;
-	int argc;
+	int argc,index=3,cmp;
+	enum hplc_run_type rrun;
 
 	argc=tokenize_str1(file_name,argv,NAME_MAX_ARGS,'-');
 	
-	if(argc<15){
-		fprintf(stderr,"Args:%d\n",argc);
+	if(argc==15){
+		rrun=ISO;
+	}
+	else if(argc==17){
+		rrun=GRA;
+	}
+	else{
+		fprintf(stderr,"Args:%d, ISO has 15, GRA has 17\n",argc);
 		return false;//too few args
 	}
-	data->slvnt=strdup(argv[3]);
-	data->pH=HPLC_STRTOD(argv[4]){
+	data->slvnt=strdup(argv[index++]);
+	data->pH=HPLC_STRTOD(argv[index++]){
 		fprintf(stderr,"pH tail:%s\n",tail);
 		tail=NULL;
 	}
+	cmp=index;
 	for(int i=0;i<SIZEOF(run);i++)
-		if(!strcmp(argv[5],run[i].name)){
-			data->type=run[i].type;
+		if(!strcmp(argv[index],run[i].name)){
+			data->run.type=run[i].type;
+			index++;
 			break;
 		}
-	data->slvnt_percent=HPLC_STRTOD(argv[6]){
-		fprintf(stderr,"Solvent tail:%s\n",tail);
-		tail=NULL;
+	if(cmp==index){
+		print_error("Run type %s is not valid\n",argv[index]);
+		return false;
 	}
-	data->flow_rate=HPLC_STRTOD(argv[7]){
+	if(rrun!=data->run.type){
+		if(data->run.type==GRA)
+			print_error(
+			"Argument number %d not does corrolate to GRA run type"
+			", GRA takes 17 arguments!",argc);
+		else
+			print_error(
+			"Argument number %d not does corrolate to ISO run type"
+			", ISO takes 15 arguments!",argc);
+		return false;
+	}
+	if(data->run.type==ISO){
+		data->run.iso.slvnt_percent=HPLC_STRTOD(argv[index++]){
+			fprintf(stderr,"Solvent tail:%s\n",tail);
+			tail=NULL;
+		}
+	}
+	else{
+		data->run.gra.slvnt_start=HPLC_STRTOD(argv[index++]){
+			fprintf(stderr,"Solvent start tail:%s\n",tail);
+			tail=NULL;
+		}
+		data->run.gra.slvnt_end=HPLC_STRTOD(argv[index++]){
+			fprintf(stderr,"Solvent end tail:%s\n",tail);
+			tail=NULL;
+		}
+		data->run.gra.tg=HPLC_STRTOD(argv[index++]){
+			fprintf(stderr,"tg tail:%s\n",tail);
+			tail=NULL;
+		}
+	}
+	data->flow_rate=HPLC_STRTOD(argv[index++]){
 		fprintf(stderr,"Flow Rate tail:%s\n",tail);
 		tail=NULL;
 	}
-	data->njctn_volume=strdup(argv[8]);
-	data->njctn_type=strdup(argv[9]);
-	data->sample_conc=HPLC_STRTOD(argv[10]){
+	data->njctn_volume=strdup(argv[index++]);
+	data->njctn_type=strdup(argv[index++]);
+	data->sample_conc=HPLC_STRTOD(argv[index++]){
 		fprintf(stderr,"Sample Concentration tail:%s\n",tail);
 		tail=NULL;
 	}
 	
-	if(!hplc_metadata_column(argv,&data->column)){
+	if(!hplc_metadata_column(argv,&index,&data->column)){
 		return false;
 	}
-	if(!strcmp(argv[13],"amb"))
+	if(!strcmp(argv[index],"amb")){
 		data->temperature=AMB;
+		index++;
+	}
 	else{
-		if(argv[13][0]=='t'||argv[13][0]=='T')
-			argv[13]++;
-		data->temperature=HPLC_STRTOD(argv[13]){
+		if(argv[index][0]=='t'||argv[index][0]=='T')
+			argv[index]++;
+		data->temperature=HPLC_STRTOD(argv[index++]){
 			fprintf(stderr,"Temperature tail:%s\n",tail);
 			tail=NULL;
 		}
 	}
-	data->wavelength=(int)strtol(argv[14],&tail,10);
+	data->wavelength=(int)strtol(argv[index],&tail,10);
+	//printf("Index:%d\n",index);
 	if(tail!=NULL&&*tail!='\0'){
 		if(!strcmp(tail,".csv"))
 			return true;
@@ -199,41 +281,76 @@ void hplc_metadata_print(struct hplc_run_metadata*data)
 {
 	struct hplc_column*clmn;
 	char*tmp,*tmp_ph,*tmp_sv_p,*tmp_fl,*tmp_cl_len,*tmp_cl_id,*tmp_cl_ps,
-	*tmp_brand;
+	*tmp_brand,*tmp_sv_pe,*tmp_tg;
 
-	clmn=&data->column;
-	tmp=hplc_temperature_str(data->temperature);
-	//printf("\033[35m%s\033[0m\n",tmp);
-	tmp_ph=hplc_sint_str(data->pH);
-	tmp_sv_p=hplc_sint_str(data->slvnt_percent);
-	tmp_fl=hplc_sint_str(data->flow_rate);
-	tmp_cl_len=hplc_sint_str(clmn->clmn_length);
-	tmp_cl_id=hplc_sint_str(clmn->clmn_id);
-	tmp_cl_ps=hplc_sint_str(clmn->clmn_bead_size);
-	tmp_brand=hplc_clmn_brand_str(clmn->brand);
+		clmn=&data->column;
+		tmp=hplc_temperature_str(data->temperature);
+		//printf("\033[35m%s\033[0m\n",tmp);
+		tmp_ph=hplc_sint_str(data->pH);
+		tmp_fl=hplc_sint_str(data->flow_rate);
+		tmp_cl_len=hplc_sint_str(clmn->clmn_length);
+		tmp_cl_id=hplc_sint_str(clmn->clmn_id);
+		tmp_cl_ps=hplc_sint_str(clmn->clmn_bead_size);
+		tmp_brand=hplc_clmn_brand_str(clmn->brand);
 
-	printf(
-	"Solvent:%s\n"
-	"pH:%s\n"
-	"Run Type:%s\n"
-	"Solvent Percent:%s\n"
-	"Flow Rate:%s\n"
-	"Injection Volume:%s\n"
-	"Injection Type:%s\n"
-	"Column Phase:%s\n"
-	"Column Brand:%s\n"
-	"Column Length:%s\n"
-	"Column Internal Diameter:%s\n"
-	"Column Bead Size:%s\n"
-	"Temperature:%s\n"
-	"Wavelength:%d\n",
-	data->slvnt,tmp_ph,hplc_run_type_str(data->type),tmp_sv_p,
-	tmp_fl,data->njctn_volume,data->njctn_type,clmn->clmn_phase,
-	tmp_brand,tmp_cl_len,tmp_cl_id,tmp_cl_ps,tmp,data->wavelength);
+	if(data->run.type==ISO){
+		tmp_sv_p=hplc_sint_str(data->run.iso.slvnt_percent);
+
+		printf(
+		"Solvent:%s\n"
+		"pH:%s\n"
+		"Run Type:%s\n"
+		"Solvent Percent:%s\n"
+		"Flow Rate:%s\n"
+		"Injection Volume:%s\n"
+		"Injection Type:%s\n"
+		"Column Phase:%s\n"
+		"Column Brand:%s\n"
+		"Column Length:%s\n"
+		"Column Internal Diameter:%s\n"
+		"Column Bead Size:%s\n"
+		"Temperature:%s\n"
+		"Wavelength:%d\n",
+		data->slvnt,tmp_ph,hplc_run_type_str(data->run.type),tmp_sv_p,
+		tmp_fl,data->njctn_volume,data->njctn_type,clmn->clmn_phase,
+		tmp_brand,tmp_cl_len,tmp_cl_id,tmp_cl_ps,tmp,data->wavelength);
+		
+		free(tmp_sv_p);
+	}
+	else{
+		tmp_sv_p=hplc_sint_str(data->run.gra.slvnt_start);
+		tmp_sv_pe=hplc_sint_str(data->run.gra.slvnt_end);
+		tmp_tg=hplc_sint_str(data->run.gra.tg);
+
+		printf(
+		"Solvent:%s\n"
+		"pH:%s\n"
+		"Run Type:%s\n"
+		"Solvent %% start:%s\n"
+		"Solvent %% end:%s\n"
+		"tg:%s\n"
+		"Flow Rate:%s\n"
+		"Injection Volume:%s\n"
+		"Injection Type:%s\n"
+		"Column Phase:%s\n"
+		"Column Brand:%s\n"
+		"Column Length:%s\n"
+		"Column Internal Diameter:%s\n"
+		"Column Bead Size:%s\n"
+		"Temperature:%s\n"
+		"Wavelength:%d\n",
+		data->slvnt,tmp_ph,hplc_run_type_str(data->run.type),tmp_sv_p,
+		tmp_sv_pe,tmp_tg,
+		tmp_fl,data->njctn_volume,data->njctn_type,clmn->clmn_phase,
+		tmp_brand,tmp_cl_len,tmp_cl_id,tmp_cl_ps,tmp,data->wavelength);
+
+		free(tmp_sv_p);
+		free(tmp_sv_pe);
+		free(tmp_tg);
+	}
 
 	free(tmp);
 	free(tmp_ph);
-	free(tmp_sv_p);
 	free(tmp_fl);
 	free(tmp_cl_len);
 	free(tmp_cl_id);
@@ -282,7 +399,7 @@ hplc_sint hplc_clmn_ps_small(struct hplc_column *clmn)
 {
     sqlite3_stmt *pstmt = NULL;
     int ret;
-    const char *sql = "select ps from hplc_columns "
+    const char *sql = "select ps,brand from hplc_columns "
                       "where diameter=? and ps<? and lig=? and length=? "
                       "order by ps desc";
     hplc_sint ps = 0;

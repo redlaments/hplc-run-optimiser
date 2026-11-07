@@ -77,12 +77,26 @@ struct hplc_column{
 	hplc_sint clmn_length;
 	hplc_sint clmn_id;
 	hplc_sint clmn_bead_size;
+	int id;
+};
+struct hplc_iso_run{
+	enum hplc_run_type type;
+	hplc_sint slvnt_percent;
+};
+struct hplc_gra_run{
+	enum hplc_run_type type;
+	hplc_sint slvnt_start;
+	hplc_sint slvnt_end;
+	hplc_sint tg;//gradient time
+};
+union hplc_run{
+	enum hplc_run_type type;
+	struct hplc_iso_run iso;
+	struct hplc_gra_run gra;
 };
 struct hplc_run_metadata{
 	char*slvnt;
 	hplc_sint pH;
-	enum hplc_run_type type;
-	hplc_sint slvnt_percent;
 	hplc_sint flow_rate;
 	char*njctn_volume;
 	char*njctn_type;
@@ -90,6 +104,7 @@ struct hplc_run_metadata{
 	struct hplc_column column;
 	hplc_sint temperature;//stored in db as text
 	int wavelength; //stored in db as variable wave
+	union hplc_run run;
 };
 	
 

@@ -19,7 +19,7 @@ test-csv:csv.o
 test-logic:logic.o hplc-types.o metadata.o cli.o query.o run-db.o util.o
 	cc -c $(INCLUDE) $(CFLAGS) test-logic.c
 	cc $(CFLAGS) $(LDFLAGS) logic.o hplc-types.o metadata.o cli.o query.o test-logic.o \
-	run-db.o util.o
+	util.o
 %.o:%.c
 	cc -c $(INCLUDE) $(CFLAGS) $< -o $@
 t1.o:t1.c

@@ -4,7 +4,7 @@ OBJ=csv.o file.o metadata.o logic.o hplc.o util.o hplc-types.o
 GOBJ=query.o run-db.o
 INCLUDE=-I $$(pwd)
 all:$(OBJ) $(GOBJ) t1.o
-	cc $(OBJ) $(GOBJ) $(CFLAGS) $(LDFLAGS) t1.o
+	cc t1.o $(OBJ) $(GOBJ) $(CFLAGS) $(LDFLAGS)
 cli:$(OBJ) main.o
 	cc $(OBJ) main.o $(CFLAGS) -o hplc 
 tool:csv.o

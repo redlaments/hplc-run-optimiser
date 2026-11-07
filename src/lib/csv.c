@@ -395,13 +395,13 @@ int handle_header(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*
 		hplc_time.tm_year=0;
 	}
 	else{
-		if(strptime(argv[1],"%d/%m/%Y",&hplc_time))
-			fprintf(stderr,"Output date failed to parse:%s\n",argv[1]);
-		else{
+		//if(strptime(argv[1],"%d/%m/%Y",&hplc_time))
+		//	fprintf(stderr,"Output date failed to parse:%s\n",argv[1]);
+		//else{
 			hplc_time.tm_mday=0;
 			hplc_time.tm_mon=0;
 			hplc_time.tm_year=0;
-		}
+		//}
 	}
 	argc=tokenize_str(data,i,size,argv,2);
 	if(argc<2){
@@ -411,13 +411,13 @@ int handle_header(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*
 		hplc_time.tm_hour=0;
 	}
 	else{
-		if(strptime(argv[1],"%I:%M:%S %r",&hplc_time))
-			fprintf(stderr,"Output time failed to parse:%s\n",argv[1]);
-		else{
+		//if(strptime(argv[1],"%I:%M:%S %r",&hplc_time))
+		//	fprintf(stderr,"Output time failed to parse:%s\n",argv[1]);
+		//else{
 			hplc_time.tm_sec=0;
 			hplc_time.tm_min=0;
 			hplc_time.tm_hour=0;
-		}
+		//}
 
 	}
 	csv->header.time=mktime(&hplc_time);

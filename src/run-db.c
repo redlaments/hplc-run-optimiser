@@ -500,7 +500,7 @@ bool hplc_run_meta_check(struct hplc_run_metadata* data, char** pk)
                 "hr.slvnt = ? AND "
                 "hr.ph = ? AND "
                 "hr.type = ? AND "
-                "hr,flow_rate = ? AND "
+                "hr.flow_rate = ? AND "
                 "hr.njctn_volume = ? AND "
                 "hr.njctn_type = ? AND "
                 "hr.sample_conc = ? AND "
@@ -611,4 +611,38 @@ bool hplc_run_col_check(char *col)
     sqlite3_finalize(pStmt);
 
     return found;
+}
+void hplc_column_brand(struct hplc_column *clmn)
+{
+    int ret;
+    sqlite3_stmt *pstmt = NULL;
+    const char *sql = "select id,brand from hplc_columns where length=? and "
+                      "diameter=? and ps=? and lig=?";
+
+    if (!clmn || !clmn->clmn_phase || !pDb) {
+        return;
+    }
+
+    ret = sqlite3_prepare_v2(pDb, sql, -1, &pstmt, NULL);
+    if (ret != SQLITE_OK) {
+        return;
+    }
+
+    // Bind parameters: 1 = length, 2 = diameter (clmn_id), 3 = ps (bead size), 4 = lig (clmn_phase)
+    if (sqlite3_bind_int64(pstmt, 1, (sqlite3_int64)clmn->clmn_length) != SQLITE_OK ||
+        sqlite3_bind_int64(pstmt, 2, (sqlite3_int64)clmn->clmn_id) != SQLITE_OK ||
+        sqlite3_bind_int64(pstmt, 3, (sqlite3_int64)clmn->clmn_bead_size) != SQLITE_OK ||
+        sqlite3_bind_text(pstmt, 4, clmn->clmn_phase, -1, SQLITE_STATIC) != SQLITE_OK) {
+        sqlite3_finalize(pstmt);
+        return;
+    }
+
+    ret = sqlite3_step(pstmt);
+    if (ret == SQLITE_ROW) {
+        // Update struct fields with retrieved SQLite results
+        clmn->id = sqlite3_column_int(pstmt, 0);
+        clmn->brand = sqlite3_column_int(pstmt, 1);
+    }
+
+    sqlite3_finalize(pstmt);
 }

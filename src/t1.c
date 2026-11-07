@@ -18,140 +18,24 @@
 #include "util.h"
 #include "hplc-types.h"
 
-#define DASH_TABLE_ROWS 12
+#define MAX_DASH_ROWS 16
 #define DASH_TABLE_COLUMNS 2
 #define BENCH_TABLE_ROWS 4
 #define BENCH_TABLE_COLS 2
 
-char *dash_table[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS];
-char*bench_table[BENCH_TABLE_ROWS][BENCH_TABLE_COLS];
-char*bench_head[BENCH_TABLE_COLS]={
-"Parameter",
-"Value"
+// Global Active Mode State (Defaults to ISO)
+static enum hplc_run_type selected_mode = ISO;
+static int active_dash_rows = 12;
+
+char *dash_table[MAX_DASH_ROWS][DASH_TABLE_COLUMNS];
+char *bench_table[BENCH_TABLE_ROWS][BENCH_TABLE_COLS];
+char *bench_head[BENCH_TABLE_COLS] = {
+    "Parameter",
+    "Value"
 };
 struct benchmarks bench = {7, 1.4, 15, 4000};
-bool screen=false;
+bool screen = false;
 
-void init_dash()
-{
-    char *name[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS] = {
-        {"Solvent", ""},
-        {"pH", ""},
-        {"Run Type", ""},
-        {"%B", ""},
-        {"Flow Rate (mL/s)", ""},
-        {"Injection volume (microliters)", ""},
-        {"Injection type", ""},
-        {"Sample Concentration", ""},
-        {"Column phase and brand", ""},
-        {"Column measurements", ""},
-        {"Temperature (C)", ""},
-        {"Detector Wavelength (nm)", ""}
-    };
-
-    memcpy(dash_table, name, sizeof(name));
-}
-void init_bench()
-{
-	char*name[BENCH_TABLE_ROWS][BENCH_TABLE_COLS]={
-	{"Peaks","7"},
-	{"Resolution","1.4"},
-	{"Runtime (mins)","15"},
-	{"Backpressure (psi)","4000"}
-	};
-
-	memcpy(bench_table,name,sizeof(name));
-}
-
-void update_metadata(struct hplc_run_metadata *m,enum selectivity_action action,void*adata);
-void update_bench(struct benchmarks*ben);
-void print_data(const char*restrict format,...);
-void print_error(char*format,...);
-
-int add_run(char *input)
-{
-    FILE *f;
-    struct hplc_data hdata;
-    enum selectivity_action action;
-    void *adata = NULL;
-    char*new_pk;
-
-    f = file_open(input, &hdata.data);
-    if (!f) {
-        fprintf(stderr, "file_open failed check your file_name adheres to the naming standard!\n");
-        return 0;
-    }
-    if(hplc_column_phase(&hdata.data)<0){
-    	fprintf(stderr,"Column phase %s is invalid\n",hdata.data.column.clmn_phase);
-	hplc_metadata_destroy(&hdata.data);
-	fclose(f);
-	return 0;
-    }
-    if (!csv_parse_file(f, &hdata)) {
-        fprintf(stderr, "csv parsing failed\n");
-        hplc_metadata_destroy(&hdata.data);
-        fclose(f);
-        return 0;
-    }
-    if(!hplc_run_check(input))
-	    hplc_run_add(&hdata.data,input);
-    action = logic(&hdata, &bench, &adata);
-    switch (action) {
-    case CITEMP:
-    case CDTEMP:
-        hdata.data.temperature = *(hplc_sint *)adata;
-        break;
-    case CSOL:
-        hdata.data.slvnt = (char *)adata;
-        break;
-    case CIB:
-    case CDB:
-        hdata.data.run.iso.slvnt_percent = *(hplc_sint *)adata;
-        break;
-    case CDFLOW:
-    case CIFLOW:
-        hdata.data.flow_rate = *(hplc_sint *)adata;
-        break;
-    case SUCCESS:
-    	update_metadata(&hdata.data,action,adata);
-	free(adata);
-	hplc_destroy(&hdata);
-	fclose(f);
-	return 1;
-    case SPP:
-	//TODO where does this go?
-	print_data("Changed SPP\n");
-	break;
-    case CLIG:
-    	free(hdata.data.column.clmn_phase);
-    	hdata.data.column.clmn_phase=strdup((char*)adata);
-	break;
-    case CDPS:
-    	hdata.data.column.clmn_bead_size=*(hplc_sint*)adata;
-	break;
-    case CCL:
-    	hdata.data.column.clmn_length=*(hplc_sint*)adata;
-	break;
-    default:
-    	print_error("Option not recognised:%s\n",resolve_action_name(action));
-        return 0;
-    }
-    if(!hplc_run_meta_check(&hdata.data,&new_pk))
-	update_metadata(&hdata.data,action,adata);
-    else{
-    	add_run(new_pk);
-	free(new_pk);
-    }
-    free(adata);
-    hplc_destroy(&hdata);
-    fclose(f);
-
-    return 1;
-}
-
-// ============================================================================
-// COMPILE-TIME CONSTANTS & DATA DEFINITIONS
-// ============================================================================
 static const char *const TABLE_HEADERS[DASH_TABLE_COLUMNS] = {
     "Variable", "Parameter"
 };
@@ -170,22 +54,20 @@ static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
     {
         "Solvent Bottles",
         "Solvent Bottles",
-
-	"The solvent bottles store the various solvents needed in a pure form. "
+        "The solvent bottles store the various solvents needed in a pure form. "
         "Solvents are mixed in the required proportions by the HPLC apparatus"
-	"\n\nThis module affects the solvent parameter. The solvent is a chemical parameter and as such will influence the selectivity and efficiency of the chromatograms when changed",
-
+        "\n\nThis module affects the solvent parameter. The solvent is a chemical parameter and as such will influence the selectivity and efficiency of the chromatograms when changed",
         "test.jpg",
         {40, 40, 130, 80}
     },
     {
         "Pumps",
         "Pumps",
-	"The pump generates the pressure for pushing the liquid through the "
+        "The pump generates the pressure for pushing the liquid through the "
         "column. There are at least 2 pump heads in each pump. This is as"
         " 1 head cannot generate a constant flow rate "
-	"\n\nThis module affects the flow rate, a mechanical parameter, This will influence the efficiency but not the selectivity of chromatograms when changed"
-	"\n\nThis module affects the %B, a chemical parameter. Changing this will inflence the selectivity of compounds in chromatograms.",
+        "\n\nThis module affects the flow rate, a mechanical parameter, This will influence the efficiency but not the selectivity of chromatograms when changed"
+        "\n\nThis module affects the %B, a chemical parameter. Changing this will inflence the selectivity of compounds in chromatograms.",
         "radiator.png",
         {40, 120, 130, 80}
     },
@@ -193,7 +75,7 @@ static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
         "Column",
         "Column",
         "The place where chromatography occurs"
-	"\n\nThis module affects the column ligand, a chemical parameter. Changing this will affect the selectivity of compounds in chromatograms",
+        "\n\nThis module affects the column ligand, a chemical parameter. Changing this will affect the selectivity of compounds in chromatograms",
         "mcu.png",
         {40, 200, 120, 80}
     },
@@ -201,7 +83,7 @@ static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
         "Column Oven",
         "Column Oven",
         "Heats the column so the column can function at a consistant temperature"
-	"\n\nThis module affect temperature, both a mechanical and chemical paramter. Changing this will affect both the selectivity of compounds and efficiency in chromatograms",
+        "\n\nThis module affect temperature, both a mechanical and chemical paramter. Changing this will affect both the selectivity of compounds and efficiency in chromatograms",
         "mcu.png",
         {40, 280, 120, 80}
     },
@@ -217,24 +99,20 @@ static const BlueprintPart MACHINE_PARTS[NUM_BLUEPRINT_PARTS] = {
     {
         "Degasser",
         "Degasser",
-
         "The degasser removes dissolved gas from the solvents. The amount of "
         "gas a liquid can dissolve changes at the pressure changes. As gases "
         "are compressable and liquids are not, this can cause issues with "
         "pressure generation at the pump head",
-
         "mcu.png",
         {40, 440, 120, 80}
     },
     {
         "Injector",
         "Injector",
-
         "The injector is where samples are loaded before they are sent into "
         "the instrument. Due to the design of the injector interface, the time"
         "at which the sample is loaded into the instrument can be seen on the "
         "chromatogram",
-
         "mcu.png",
         {40, 520, 120, 80}
     }
@@ -246,39 +124,211 @@ static const char *const DB_HEADERS[DB_TABLE_COLS] = {
     "Primary Key","Solvent","pH","Run Type","Flow Rate","Injection Volume","Injection Type","Sample Concentration","Column Type","Dimensions","Temperature","Wavelength"
 };
 
-// ============================================================================
-// UI STATE & CONTEXT STRUCTURE
-// ============================================================================
-
+// UI State & Context Structure
 typedef struct {
+    GtkWidget *window;
+    GtkWidget *table_grid_container;
     GtkWidget *part_title_label;
     GtkWidget *part_desc_label;
     GtkWidget *part_image;
     GtkWidget *entry;
     GtkWidget *drawing_area;
-    GtkWidget *db_grid_container; // Container for dynamic DB rows
+    GtkWidget *db_grid_container;
     const BlueprintPart *active_part;
-    GtkWidget *table_labels[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS];
+    GtkWidget *table_labels[MAX_DASH_ROWS][DASH_TABLE_COLUMNS];
 
-    GtkWidget*config_tab_lbl[SIZEOF(bench_table)][SIZEOF(bench_table[0])];
-    GtkWidget*config_entry;
+    GtkWidget *config_tab_lbl[BENCH_TABLE_ROWS][BENCH_TABLE_COLS];
+    GtkWidget *config_entry;
     GtkTextBuffer *config_console_buffer;
     GtkWidget     *config_console_view;
 
-/*used for table screen, can alternate between console and graphical*/
     GtkTextBuffer *console_buffer;
     GtkWidget     *console_view;
-/*
-    GtkWidget *graph_drawing_area;
-    int hovered_table_row;*/
 } AppContext;
 
 AppContext app = {0};
 
-// ============================================================================
-// C BACKEND FUNCTIONS
-// ============================================================================
+// Forward Declarations
+void hplc_column_brand(struct hplc_column *clmn);
+enum selectivity_action multi_menu(void *adata, void **out_arg);
+void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action, void *adata);
+void update_bench(struct benchmarks *ben);
+void print_data(const char *restrict format, ...);
+void print_error(char *format, ...);
+void update_screen1_table_data(AppContext *app, const char *new_matrix[MAX_DASH_ROWS][DASH_TABLE_COLUMNS]);
+void update_config_screen_table_data(AppContext *app, const char *new_matrix[BENCH_TABLE_ROWS][BENCH_TABLE_COLS]);
+void rebuild_dash_table_ui(AppContext *app);
 
+void init_dash()
+{
+    if (selected_mode == ISO) {
+        active_dash_rows = 12;
+        char *name[12][DASH_TABLE_COLUMNS] = {
+            {"Solvent", ""},
+            {"pH", ""},
+            {"Run Type", "Isocratic"},
+            {"%B", ""},
+            {"Flow Rate (mL/s)", ""},
+            {"Injection volume (microliters)", ""},
+            {"Injection type", ""},
+            {"Sample Concentration", ""},
+            {"Column phase and brand", ""},
+            {"Column measurements", ""},
+            {"Temperature (C)", ""},
+            {"Detector Wavelength (nm)", ""}
+        };
+        memcpy(dash_table, name, sizeof(name));
+    } else {
+        active_dash_rows = 14;
+        char *name[14][DASH_TABLE_COLUMNS] = {
+            {"Solvent", ""},
+            {"pH", ""},
+            {"Run Type", "Gradient"},
+            {"%B Start", ""},
+            {"%B End", ""},
+            {"Gradient Time (tG min)", ""},
+            {"Flow Rate (mL/s)", ""},
+            {"Injection volume (microliters)", ""},
+            {"Injection type", ""},
+            {"Sample Concentration", ""},
+            {"Column phase and brand", ""},
+            {"Column measurements", ""},
+            {"Temperature (C)", ""},
+            {"Detector Wavelength (nm)", ""}
+        };
+        memcpy(dash_table, name, sizeof(name));
+    }
+}
+
+void init_bench()
+{
+    char *name[BENCH_TABLE_ROWS][BENCH_TABLE_COLS] = {
+        {"Peaks", "7"},
+        {"Resolution", "1.4"},
+        {"Runtime (mins)", "15"},
+        {"Backpressure (psi)", "4000"}
+    };
+    memcpy(bench_table, name, sizeof(name));
+}
+
+// Backend Execution Logic
+int add_run(char *input)
+{
+    FILE *f;
+    struct hplc_data hdata;
+    enum selectivity_action action;
+    void *adata = NULL;
+    char *new_pk;
+
+    f = file_open(input, &hdata.data);
+    if (!f) {
+        fprintf(stderr, "file_open failed check your file_name adheres to the naming standard!\n");
+        return 0;
+    }
+    if (hplc_column_phase(&hdata.data) < 0) {
+        fprintf(stderr, "Column phase %s is invalid\n", hdata.data.column.clmn_phase);
+        hplc_metadata_destroy(&hdata.data);
+        fclose(f);
+        return 0;
+    }
+    if (!csv_parse_file(f, &hdata)) {
+        fprintf(stderr, "csv parsing failed\n");
+        hplc_metadata_destroy(&hdata.data);
+        fclose(f);
+        return 0;
+    }
+    if (!hplc_run_check(input))
+        hplc_run_add(&hdata.data, input);
+
+    // Enforce active run mode inside union
+    hdata.data.run.type = selected_mode;
+
+    // Dispatch logic check based on run type
+    if (hdata.data.run.type == GRA) {
+        action = gra_logic(&hdata, &bench, &adata);
+    } else {
+        action = logic(&hdata, &bench, &adata);
+    }
+
+    switch (action) {
+    case CITEMP:
+    case CDTEMP:
+        hdata.data.temperature = *(hplc_sint *)adata;
+        break;
+    case CSOL:
+        hdata.data.slvnt = (char *)adata;
+        break;
+    case CIB:
+    case CDB:
+        if (hdata.data.run.type == ISO) {
+            hdata.data.run.iso.slvnt_percent = *(hplc_sint *)adata;
+        } else {
+            hdata.data.run.gra.slvnt_start = *(hplc_sint *)adata;
+        }
+        break;
+    case CIBE:
+        if (hdata.data.run.type == GRA) {
+            hdata.data.run.gra.slvnt_end = *(hplc_sint *)adata;
+        }
+        break;
+    case CMTG:
+    case CDVTG:
+        if (hdata.data.run.type == GRA) {
+            hdata.data.run.gra.tg = *(hplc_sint *)adata;
+        }
+        break;
+    case CDFLOW:
+    case CIFLOW:
+    case CMFLOW:
+        hdata.data.flow_rate = *(hplc_sint *)adata;
+        break;
+    case SUCCESS:
+        update_metadata(&hdata.data, action, adata);
+        free(adata);
+        hplc_destroy(&hdata);
+        fclose(f);
+        return 1;
+    case SPP:
+        print_data("Changed SPP\n");
+        hplc_column_brand(&hdata.data.column);
+        break;
+    case CLIG:
+        free(hdata.data.column.clmn_phase);
+        hdata.data.column.clmn_phase = strdup((char *)adata);
+        hplc_column_brand(&hdata.data.column);
+        break;
+    case CDPS:
+        hdata.data.column.clmn_bead_size = *(hplc_sint *)adata;
+        hplc_column_brand(&hdata.data.column);
+        break;
+    case CCL:
+        hdata.data.column.clmn_length = *(hplc_sint *)adata;
+        hplc_column_brand(&hdata.data.column);
+        break;
+    case MULTI:
+    case SMULT:
+        // Evaluated inside update_metadata via multi_menu choice
+        break;
+    default:
+        print_error("Option not recognised:%s\n", resolve_action_name(action));
+        return 0;
+    }
+
+    if (!hplc_run_meta_check(&hdata.data, &new_pk)) {
+        update_metadata(&hdata.data, action, adata);
+    } else {
+        add_run(new_pk);
+        free(new_pk);
+    }
+
+    free(adata);
+    hplc_destroy(&hdata);
+    fclose(f);
+
+    return 1;
+}
+
+// C Backend Helpers
 void c_backend_process_command(const char *input_text) {
     printf("[C Backend] Received text command: \"%s\"\n", input_text);
     add_run((char *)input_text);
@@ -292,115 +342,110 @@ void c_backend_on_part_hovered(const BlueprintPart *part) {
     }
 }
 
-// ============================================================================
-// CALLBACKS & EVENT CONTROLLERS
-// ============================================================================
+// Callbacks & Logging
+void gui_log(AppContext *app_ptr, const char *text, bool is_error) {
+    GtkTextBuffer *l_buf;
+    GtkWidget *l_view;
+    GtkTextIter end;
 
-void gui_log(AppContext *app, const char *text, bool is_error) {
-	GtkTextBuffer*l_buf;
-	GtkWidget*l_view;
-	GtkTextIter end;
-
-	if(!app)
-		return;
-	if(!screen){
-		l_buf=app->console_buffer;
-		l_view=app->console_view;
-	}
-	else{
-		l_buf=app->config_console_buffer;
-		l_view=app->config_console_view;
-	}
-	if (!l_buf||!l_view)
-		return;
+    if (!app_ptr)
+        return;
+    if (!screen) {
+        l_buf = app_ptr->console_buffer;
+        l_view = app_ptr->console_view;
+    } else {
+        l_buf = app_ptr->config_console_buffer;
+        l_view = app_ptr->config_console_view;
+    }
+    if (!l_buf || !l_view)
+        return;
 
     gtk_text_buffer_get_end_iter(l_buf, &end);
 
-    // Apply color tag depending on whether it is stdout or stderr
     const char *tag_name = is_error ? "stderr_tag" : "stdout_tag";
     gtk_text_buffer_insert_with_tags_by_name(l_buf, &end, text, -1, tag_name, NULL);
 
-    // Auto-scroll to the end of the log output
     GtkTextMark *mark = gtk_text_buffer_get_insert(l_buf);
     gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(l_view), mark, 0.0, FALSE, 0.0, 1.0);
 }
 
-void print_data(const char*restrict format,...)
+void print_data(const char *restrict format, ...)
 {
-        va_list ap;
-	char*tmp;
-	size_t size;
+    va_list ap;
+    char *tmp;
+    size_t size;
 
-        va_start(ap,format);
+    va_start(ap, format);
 
-	size=vsnprintf(NULL,0,format,ap);
-	tmp=malloc(sizeof(char)*++size);
-	vsnprintf(tmp,size,format,ap);
-	gui_log(&app,tmp,false);
-	free(tmp);
+    size = vsnprintf(NULL, 0, format, ap);
+    tmp = malloc(sizeof(char) * ++size);
+    vsnprintf(tmp, size, format, ap);
+    gui_log(&app, tmp, false);
+    free(tmp);
 
-        va_end(ap);
+    va_end(ap);
 }
-void print_error(char*format,...)
+
+void print_error(char *format, ...)
 {
-        va_list ap;
-	char*tmp;
-	size_t size;
+    va_list ap;
+    char *tmp;
+    size_t size;
 
-        va_start(ap,format);
+    va_start(ap, format);
 
-	size=vsnprintf(NULL,0,format,ap);
-	tmp=malloc(sizeof(char)*++size);
-	vsnprintf(tmp,size,format,ap);
-	gui_log(&app,tmp,true);
-	free(tmp);
+    size = vsnprintf(NULL, 0, format, ap);
+    tmp = malloc(sizeof(char) * ++size);
+    vsnprintf(tmp, size, format, ap);
+    gui_log(&app, tmp, true);
+    free(tmp);
 
-        va_end(ap);
+    va_end(ap);
 }
+
 void config_help()
 {
-	print_data("Please input the config as follows:"
-	"{peaks} {resolution} {runtime} {backpressure}.\n"
-	"For example, enter \"7 1.4 15 4000\" to set config to desiring "
-	"7 peaks, a resolution of 1.4, a max runtime of 15 mins and "
-	"a max backpressure under 4000 psi\n");
-}
-static void on_command_submitted(GtkButton *button, gpointer user_data) {
-    AppContext *app = (AppContext *)user_data;
-    const char *text = gtk_editable_get_text(GTK_EDITABLE(app->entry));
-   
-    screen=false;
-    c_backend_process_command(text);
-    gtk_editable_set_text(GTK_EDITABLE(app->entry), "");
+    print_data("Please input the config as follows:"
+               "{peaks} {resolution} {runtime} {backpressure}.\n"
+               "For example, enter \"7 1.4 15 4000\" to set config to desiring "
+               "7 peaks, a resolution of 1.4, a max runtime of 15 mins and "
+               "a max backpressure under 4000 psi\n");
 }
 
-static void handle_config(GtkButton*button,gpointer user_data)
-{
-	AppContext*app=(AppContext*)user_data;
-	const char*text;
-	int argc,argv_size=4;
-	char*tmp,*argv[argv_size];
-	
-	screen=true;
-	text=gtk_editable_get_text(GTK_EDITABLE(app->config_entry));
-	tmp=strdup(text);
-	argc=tokenize_str1(tmp,argv,argv_size,' ');
-	if(argc!=4){
-		config_help();
-	}
-	else{
-		bench.peaks=strtol(argv[0],NULL,10);
-		bench.resolution=strtod(argv[1],NULL);
-		bench.runtime=strtod(argv[2],NULL);
-		bench.backpressure=strtol(argv[3],NULL,10);
-		update_bench(&bench);
-	}
-	free(tmp);
-	gtk_editable_set_text(GTK_EDITABLE(app->config_entry),"");
+static void on_command_submitted(GtkButton *button, gpointer user_data) {
+    AppContext *app_ptr = (AppContext *)user_data;
+    const char *text = gtk_editable_get_text(GTK_EDITABLE(app_ptr->entry));
+
+    screen = false;
+    c_backend_process_command(text);
+    gtk_editable_set_text(GTK_EDITABLE(app_ptr->entry), "");
+}
+
+static void handle_config(GtkButton *button, gpointer user_data) {
+    AppContext *app_ptr = (AppContext *)user_data;
+    const char *text;
+    int argc, argv_size = 4;
+    char *tmp, *argv[argv_size];
+
+    screen = true;
+    text = gtk_editable_get_text(GTK_EDITABLE(app_ptr->config_entry));
+    tmp = strdup(text);
+    argc = tokenize_str1(tmp, argv, argv_size, ' ');
+    if (argc != 4) {
+        config_help();
+    } else {
+        bench.peaks = strtol(argv[0], NULL, 10);
+        bench.resolution = strtod(argv[1], NULL);
+        bench.runtime = strtod(argv[2], NULL);
+        bench.backpressure = strtol(argv[3], NULL, 10);
+        update_bench(&bench);
+    }
+    free(tmp);
+    gtk_editable_set_text(GTK_EDITABLE(app_ptr->config_entry), "");
 }
 
 static void on_blueprint_draw(GtkDrawingArea *drawing_area, cairo_t *cr, int width, int height, gpointer user_data) {
-    AppContext *app = (AppContext *)user_data;
+    AppContext *app_ptr = (AppContext *)user_data;
 
     cairo_set_source_rgb(cr, 0.08, 0.12, 0.20);
     cairo_paint(cr);
@@ -419,7 +464,7 @@ static void on_blueprint_draw(GtkDrawingArea *drawing_area, cairo_t *cr, int wid
 
     for (int i = 0; i < NUM_BLUEPRINT_PARTS; i++) {
         const BlueprintPart *p = &MACHINE_PARTS[i];
-        bool is_hovered = (app->active_part == p);
+        bool is_hovered = (app_ptr->active_part == p);
 
         if (is_hovered) {
             cairo_set_source_rgb(cr, 0.20, 0.85, 1.0);
@@ -448,7 +493,7 @@ static void on_blueprint_draw(GtkDrawingArea *drawing_area, cairo_t *cr, int wid
 }
 
 static void on_blueprint_motion(GtkEventControllerMotion *controller, double x, double y, gpointer user_data) {
-    AppContext *app = (AppContext *)user_data;
+    AppContext *app_ptr = (AppContext *)user_data;
 
     const BlueprintPart *hovered = NULL;
     for (int i = 0; i < NUM_BLUEPRINT_PARTS; i++) {
@@ -460,39 +505,27 @@ static void on_blueprint_motion(GtkEventControllerMotion *controller, double x, 
         }
     }
 
-    if (hovered != app->active_part) {
-        app->active_part = hovered;
+    if (hovered != app_ptr->active_part) {
+        app_ptr->active_part = hovered;
         c_backend_on_part_hovered(hovered);
 
         if (hovered) {
-            gtk_label_set_text(GTK_LABEL(app->part_title_label), hovered->name);
-            gtk_label_set_text(GTK_LABEL(app->part_desc_label), hovered->description);
-/*
-            if (g_file_test(hovered->image_path, G_FILE_TEST_EXISTS)) {
-                gtk_image_set_from_file(GTK_IMAGE(app->part_image), hovered->image_path);
-            } else {
-	    	fprintf(stderr,"image not found:%s\n",hovered->image_path);
-                gtk_image_set_from_icon_name(GTK_IMAGE(app->part_image), "system-run");
-            }*/
+            gtk_label_set_text(GTK_LABEL(app_ptr->part_title_label), hovered->name);
+            gtk_label_set_text(GTK_LABEL(app_ptr->part_desc_label), hovered->description);
         } else {
-            gtk_label_set_text(GTK_LABEL(app->part_title_label), "Machine Blueprint");
-            gtk_label_set_text(GTK_LABEL(app->part_desc_label), "Hover mouse cursor over a component region to inspect details and images.");
-            gtk_image_set_from_icon_name(GTK_IMAGE(app->part_image), "dialog-information");
+            gtk_label_set_text(GTK_LABEL(app_ptr->part_title_label), "Machine Blueprint");
+            gtk_label_set_text(GTK_LABEL(app_ptr->part_desc_label), "Hover mouse cursor over a component region to inspect details and images.");
+            gtk_image_set_from_icon_name(GTK_IMAGE(app_ptr->part_image), "dialog-information");
         }
 
-        gtk_widget_queue_draw(app->drawing_area);
+        gtk_widget_queue_draw(app_ptr->drawing_area);
     }
 }
 
-/**
- * Re-queries DB backend via hplc_run_table_prepare/hplc_run_table_row
- * and updates Screen 3 grid rows dynamically.
- */
-static void populate_db_grid(AppContext *app) {
-    // Clear old grid if exists
-    GtkWidget *old_grid = gtk_widget_get_first_child(app->db_grid_container);
+static void populate_db_grid(AppContext *app_ptr) {
+    GtkWidget *old_grid = gtk_widget_get_first_child(app_ptr->db_grid_container);
     if (old_grid) {
-        gtk_box_remove(GTK_BOX(app->db_grid_container), old_grid);
+        gtk_box_remove(GTK_BOX(app_ptr->db_grid_container), old_grid);
     }
 
     GtkWidget *grid = gtk_grid_new();
@@ -501,7 +534,6 @@ static void populate_db_grid(AppContext *app) {
     gtk_widget_set_vexpand(grid, TRUE);
     gtk_widget_set_hexpand(grid, TRUE);
 
-    // 1. Attach Headers (Compile-time column count)
     for (int col = 0; col < DB_TABLE_COLS; col++) {
         char header_markup[128];
         snprintf(header_markup, sizeof(header_markup), "<b><u>%s</u></b>", DB_HEADERS[col]);
@@ -511,7 +543,6 @@ static void populate_db_grid(AppContext *app) {
         gtk_grid_attach(GTK_GRID(grid), lbl, col, 0, 1, 1);
     }
 
-    // 2. Prepare SQLite statement and fetch dynamic rows as needed to display
     sqlite3_stmt *stmt = hplc_run_table_prepare();
     if (stmt) {
         char **pdata = NULL;
@@ -537,39 +568,57 @@ static void populate_db_grid(AppContext *app) {
         hplc_run_table_row_destroy(stmt);
     }
 
-    gtk_box_append(GTK_BOX(app->db_grid_container), grid);
-    gtk_widget_queue_resize(app->db_grid_container);
+    gtk_box_append(GTK_BOX(app_ptr->db_grid_container), grid);
+    gtk_widget_queue_resize(app_ptr->db_grid_container);
 }
 
 static void on_refresh_db_clicked(GtkButton *button, gpointer user_data) {
-    AppContext *app = (AppContext *)user_data;
-    populate_db_grid(app);
+    AppContext *app_ptr = (AppContext *)user_data;
+    populate_db_grid(app_ptr);
 }
 
-static void db_run_delete(GtkButton*button,gpointer user_data)
+static void db_run_delete(GtkButton *button, gpointer user_data) {
+    AppContext *app_ptr = (AppContext *)user_data;
+    hplc_run_delete();
+    on_refresh_db_clicked(button, user_data);
+}
+
+void update_config_screen_table_data(AppContext *app_ptr,
+    const char *new_matrix[BENCH_TABLE_ROWS][BENCH_TABLE_COLS])
 {
-	AppContext*app=(AppContext*)user_data;
-	hplc_run_delete();
-	on_refresh_db_clicked(button,user_data);
+    for (int row = 0; row < BENCH_TABLE_ROWS; row++) {
+        for (int col = 0; col < BENCH_TABLE_COLS; col++) {
+            if (app_ptr->config_tab_lbl[row][col] != NULL) {
+                gtk_label_set_markup(
+                    GTK_LABEL(app_ptr->config_tab_lbl[row][col]),
+                    new_matrix[row][col] ? new_matrix[row][col] : ""
+                );
+            }
+        }
+    }
 }
 
-// ============================================================================
-// UI BUILDING FUNCTIONS
-// ============================================================================
+void update_screen1_table_data(AppContext *app_ptr, const char *new_matrix[MAX_DASH_ROWS][DASH_TABLE_COLUMNS]) {
+    for (int row = 0; row < active_dash_rows; row++) {
+        for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
+            if (app_ptr->table_labels[row][col] != NULL) {
+                gtk_label_set_markup(
+                    GTK_LABEL(app_ptr->table_labels[row][col]),
+                    new_matrix[row][col] ? new_matrix[row][col] : ""
+                );
+            }
+        }
+    }
+}
 
-static GtkWidget *build_table_screen(AppContext *app) {
-    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_margin_start(vbox, 16);
-    gtk_widget_set_margin_end(vbox, 16);
-    gtk_widget_set_margin_top(vbox, 16);
-    gtk_widget_set_margin_bottom(vbox, 16);
+void rebuild_dash_table_ui(AppContext *app_ptr) {
+    if (!app_ptr->table_grid_container) return;
 
-    GtkWidget *title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(title), "<b>MonasHPLC Run Parameters</b>");
-    gtk_widget_set_halign(title, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(vbox), title);
+    GtkWidget *old_grid = gtk_widget_get_first_child(app_ptr->table_grid_container);
+    if (old_grid) {
+        gtk_box_remove(GTK_BOX(app_ptr->table_grid_container), old_grid);
+    }
 
-/*table*/
     GtkWidget *grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 24);
@@ -583,54 +632,70 @@ static GtkWidget *build_table_screen(AppContext *app) {
         gtk_grid_attach(GTK_GRID(grid), lbl, col, 0, 1, 1);
     }
 
-    for (int row = 0; row < DASH_TABLE_ROWS; row++) {
+    for (int row = 0; row < active_dash_rows; row++) {
         for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
             GtkWidget *lbl = gtk_label_new(NULL);
-    	    gtk_label_set_markup(GTK_LABEL(lbl),dash_table[row][col]);
+            gtk_label_set_markup(GTK_LABEL(lbl), dash_table[row][col]);
             gtk_widget_set_halign(lbl, GTK_ALIGN_START);
             gtk_grid_attach(GTK_GRID(grid), lbl, col, row + 1, 1, 1);
 
-            app->table_labels[row][col] = lbl;
+            app_ptr->table_labels[row][col] = lbl;
         }
     }
 
-    gtk_box_append(GTK_BOX(vbox), grid);
+    gtk_box_append(GTK_BOX(app_ptr->table_grid_container), grid);
+}
+
+// UI Building Functions
+static GtkWidget *build_table_screen(AppContext *app_ptr) {
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(vbox, 16);
+    gtk_widget_set_margin_end(vbox, 16);
+    gtk_widget_set_margin_top(vbox, 16);
+    gtk_widget_set_margin_bottom(vbox, 16);
+
+    GtkWidget *title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(title), "<b>MonasHPLC Run Parameters</b>");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(vbox), title);
+
+    app_ptr->table_grid_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(vbox), app_ptr->table_grid_container);
+    rebuild_dash_table_ui(app_ptr);
 
     GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_margin_top(sep, 8);
     gtk_widget_set_margin_bottom(sep, 8);
     gtk_box_append(GTK_BOX(vbox), sep);
 
-/*cmd entry box*/
     GtkWidget *entry_label = gtk_label_new("Execute Backend Command:");
     gtk_widget_set_halign(entry_label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(vbox), entry_label);
 
     GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    
-    app->entry = gtk_entry_new();
-    char*tmp,*dir,*help="Enter Primary Key e.g. GR19-16";
+
+    app_ptr->entry = gtk_entry_new();
+    char *tmp, *dir, *help = "Enter Primary Key e.g. GR19-16";
     int buf_size;
-    dir=current_dir();
-    buf_size=snprintf(NULL,0,"%s, Ensure csv file is in current dir:%s",help,dir);
-    tmp=malloc(sizeof(char)*++buf_size);
-    snprintf(tmp,buf_size,"%s, Ensure csv file is in current dir:%s",help,dir);
-    tmp[buf_size-1]='\0'; 
-    gtk_entry_set_placeholder_text(GTK_ENTRY(app->entry),tmp);
+    dir = current_dir();
+    buf_size = snprintf(NULL, 0, "%s, Ensure csv file is in current dir:%s", help, dir);
+    tmp = malloc(sizeof(char) * ++buf_size);
+    snprintf(tmp, buf_size, "%s, Ensure csv file is in current dir:%s", help, dir);
+    tmp[buf_size - 1] = '\0';
+    gtk_entry_set_placeholder_text(GTK_ENTRY(app_ptr->entry), tmp);
     free(dir);
     free(tmp);
 
-    gtk_widget_set_hexpand(app->entry, TRUE);
-    g_signal_connect(app->entry, "activate", G_CALLBACK(on_command_submitted), app);
-    gtk_box_append(GTK_BOX(hbox), app->entry);
+    gtk_widget_set_hexpand(app_ptr->entry, TRUE);
+    g_signal_connect(app_ptr->entry, "activate", G_CALLBACK(on_command_submitted), app_ptr);
+    gtk_box_append(GTK_BOX(hbox), app_ptr->entry);
 
     GtkWidget *btn = gtk_button_new_with_label("Send");
-    g_signal_connect(btn, "clicked", G_CALLBACK(on_command_submitted), app);
+    g_signal_connect(btn, "clicked", G_CALLBACK(on_command_submitted), app_ptr);
     gtk_box_append(GTK_BOX(hbox), btn);
     gtk_box_append(GTK_BOX(vbox), hbox);
 
-/*terminal console*/
-GtkWidget *console_label = gtk_label_new("Terminal / Execution Output:");
+    GtkWidget *console_label = gtk_label_new("Terminal / Execution Output:");
     gtk_widget_set_halign(console_label, GTK_ALIGN_START);
     gtk_widget_set_margin_top(console_label, 8);
     gtk_box_append(GTK_BOX(vbox), console_label);
@@ -641,109 +706,73 @@ GtkWidget *console_label = gtk_label_new("Terminal / Execution Output:");
     gtk_widget_set_hexpand(scrolled_win, TRUE);
     gtk_widget_set_size_request(scrolled_win, -1, 120);
 
-    // Create Buffer & Views
-    app->console_buffer = gtk_text_buffer_new(NULL);
-    app->console_view = gtk_text_view_new_with_buffer(app->console_buffer);
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(app->console_view), FALSE);
-    gtk_text_view_set_monospace(GTK_TEXT_VIEW(app->console_view), TRUE);
-    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(app->console_view), 8);
-    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(app->console_view), 8);
-    gtk_text_view_set_top_margin(GTK_TEXT_VIEW(app->console_view), 8);
-    gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(app->console_view), 8);
+    app_ptr->console_buffer = gtk_text_buffer_new(NULL);
+    app_ptr->console_view = gtk_text_view_new_with_buffer(app_ptr->console_buffer);
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(app_ptr->console_view), FALSE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(app_ptr->console_view), TRUE);
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(app_ptr->console_view), 8);
+    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(app_ptr->console_view), 8);
+    gtk_text_view_set_top_margin(GTK_TEXT_VIEW(app_ptr->console_view), 8);
+    gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(app_ptr->console_view), 8);
 
-    gtk_text_buffer_create_tag(app->console_buffer, "stdout_tag", "foreground", "#000000", NULL);
-    gtk_text_buffer_create_tag(app->console_buffer, "stderr_tag", "foreground", "#FF3333", NULL);
+    gtk_text_buffer_create_tag(app_ptr->console_buffer, "stdout_tag", "foreground", "#000000", NULL);
+    gtk_text_buffer_create_tag(app_ptr->console_buffer, "stderr_tag", "foreground", "#FF3333", NULL);
 
-    /* Apply dark terminal theme background using CSS
-    GtkCssProvider *css_provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(css_provider, "textview { background-color: #1E1E1E; }");
-    gtk_style_context_add_provider(
-        gtk_widget_get_style_context(app->console_view),
-        GTK_STYLE_PROVIDER(css_provider),
-        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
-    );*/
-
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app->console_view);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app_ptr->console_view);
     gtk_box_append(GTK_BOX(vbox), scrolled_win);
-   
+
     print_data("Example: GR19-16 (primary key) represents file GR19-16-2-ACN-3-ISO-38-1.5-20u-CP-0.1-C18P-150x4.6x5-40-254.csv in folder\n");
     return vbox;
 }
-void update_config_screen_table_data(AppContext*app,
-	const char*new_matrix[BENCH_TABLE_ROWS][BENCH_TABLE_COLS])
-{
-	for(int row=0;row<SIZEOF(bench_table);row++){
-		for(int col=0;col<SIZEOF(bench_table[0]);col++){
-			if(app->config_tab_lbl[row][col]!=NULL){
-	            		gtk_label_set_markup(
-		                GTK_LABEL(app->config_tab_lbl[row][col]),
-                        	new_matrix[row][col] ? new_matrix[row][col] : ""
-				);
-			}
-		}
-	}
-}
-void update_screen1_table_data(AppContext *app, const char *new_matrix[DASH_TABLE_ROWS][DASH_TABLE_COLUMNS]) {
-    for (int row = 0; row < DASH_TABLE_ROWS; row++) {
-        for (int col = 0; col < DASH_TABLE_COLUMNS; col++) {
-            if (app->table_labels[row][col] != NULL) {
-            gtk_label_set_markup(
-                    GTK_LABEL(app->table_labels[row][col]),
-                    new_matrix[row][col] ? new_matrix[row][col] : ""
-                );
-	    }
-        }
-    }
-}
 
-static GtkWidget *build_blueprint_screen(AppContext *app) {
+static GtkWidget *build_blueprint_screen(AppContext *app_ptr) {
     GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
     gtk_widget_set_margin_start(hbox, 16);
     gtk_widget_set_margin_end(hbox, 16);
     gtk_widget_set_margin_top(hbox, 16);
     gtk_widget_set_margin_bottom(hbox, 16);
 
-    app->drawing_area = gtk_drawing_area_new();
-    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(app->drawing_area), 350);
-    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(app->drawing_area), 260);
-    gtk_widget_set_hexpand(app->drawing_area, TRUE);
-    gtk_widget_set_vexpand(app->drawing_area, TRUE);
+    app_ptr->drawing_area = gtk_drawing_area_new();
+    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(app_ptr->drawing_area), 350);
+    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(app_ptr->drawing_area), 260);
+    gtk_widget_set_hexpand(app_ptr->drawing_area, TRUE);
+    gtk_widget_set_vexpand(app_ptr->drawing_area, TRUE);
 
-    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(app->drawing_area), on_blueprint_draw, app, NULL);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(app_ptr->drawing_area), on_blueprint_draw, app_ptr, NULL);
 
     GtkEventController *motion_controller = gtk_event_controller_motion_new();
-    g_signal_connect(motion_controller, "motion", G_CALLBACK(on_blueprint_motion), app);
-    gtk_widget_add_controller(app->drawing_area, motion_controller);
+    g_signal_connect(motion_controller, "motion", G_CALLBACK(on_blueprint_motion), app_ptr);
+    gtk_widget_add_controller(app_ptr->drawing_area, motion_controller);
 
-    gtk_box_append(GTK_BOX(hbox), app->drawing_area);
+    gtk_box_append(GTK_BOX(hbox), app_ptr->drawing_area);
 
     GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_size_request(panel, 220, -1);
 
-    app->part_title_label = gtk_label_new("Machine Blueprint");
+    app_ptr->part_title_label = gtk_label_new("Machine Blueprint");
     PangoAttrList *attr_list = pango_attr_list_new();
     pango_attr_list_insert(attr_list, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
     pango_attr_list_insert(attr_list, pango_attr_scale_new(1.2));
-    gtk_label_set_attributes(GTK_LABEL(app->part_title_label), attr_list);
+    gtk_label_set_attributes(GTK_LABEL(app_ptr->part_title_label), attr_list);
     pango_attr_list_unref(attr_list);
-    gtk_widget_set_halign(app->part_title_label, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(panel), app->part_title_label);
+    gtk_widget_set_halign(app_ptr->part_title_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(panel), app_ptr->part_title_label);
 
-    app->part_image = gtk_image_new_from_icon_name("dialog-information");
-    gtk_image_set_pixel_size(GTK_IMAGE(app->part_image), 96);
-    gtk_box_append(GTK_BOX(panel), app->part_image);
+    app_ptr->part_image = gtk_image_new_from_icon_name("dialog-information");
+    gtk_image_set_pixel_size(GTK_IMAGE(app_ptr->part_image), 96);
+    gtk_box_append(GTK_BOX(panel), app_ptr->part_image);
 
-    app->part_desc_label = gtk_label_new("Hover mouse cursor over a component region to inspect details and images.");
-    gtk_label_set_wrap(GTK_LABEL(app->part_desc_label), TRUE);
-    gtk_widget_set_halign(app->part_desc_label, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(panel), app->part_desc_label);
+    app_ptr->part_desc_label = gtk_label_new("Hover mouse cursor over a component region to inspect details and images.");
+    gtk_label_set_wrap(GTK_LABEL(app_ptr->part_desc_label), TRUE);
+    gtk_widget_set_halign(app_ptr->part_desc_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(panel), app_ptr->part_desc_label);
 
     gtk_box_append(GTK_BOX(hbox), panel);
 
     return hbox;
 }
 
-static GtkWidget *build_db_screen(AppContext *app) {
+static GtkWidget *build_db_screen(AppContext *app_ptr) {
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_start(vbox, 16);
     gtk_widget_set_margin_end(vbox, 16);
@@ -751,7 +780,7 @@ static GtkWidget *build_db_screen(AppContext *app) {
     gtk_widget_set_margin_bottom(vbox, 16);
 
     GtkWidget *top_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    
+
     GtkWidget *title = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(title), "<b>MonasHPLC Past Runs (local db)</b>");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
@@ -759,215 +788,152 @@ static GtkWidget *build_db_screen(AppContext *app) {
     gtk_box_append(GTK_BOX(top_bar), title);
 
     GtkWidget *fresh_btn = gtk_button_new_with_label("Delete all runs");
-    g_signal_connect(fresh_btn, "clicked", G_CALLBACK(db_run_delete), app);
+    g_signal_connect(fresh_btn, "clicked", G_CALLBACK(db_run_delete), app_ptr);
     gtk_box_append(GTK_BOX(top_bar), fresh_btn);
-    
+
     GtkWidget *refresh_btn = gtk_button_new_with_label("Fetch / Query DB");
-    g_signal_connect(refresh_btn, "clicked", G_CALLBACK(on_refresh_db_clicked), app);
+    g_signal_connect(refresh_btn, "clicked", G_CALLBACK(on_refresh_db_clicked), app_ptr);
     gtk_box_append(GTK_BOX(top_bar), refresh_btn);
 
     gtk_box_append(GTK_BOX(vbox), top_bar);
 
-    // Scrolled window container to handle scroll motions when rows exceed screen bounds
     GtkWidget *scrolled_win = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_vexpand(scrolled_win, TRUE);
     gtk_widget_set_hexpand(scrolled_win, TRUE);
 
-    app->db_grid_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app->db_grid_container);
+    app_ptr->db_grid_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app_ptr->db_grid_container);
 
     gtk_box_append(GTK_BOX(vbox), scrolled_win);
 
-    populate_db_grid(app);
+    populate_db_grid(app_ptr);
 
     return vbox;
 }
-static GtkWidget*build_run_config_screen(AppContext*app)
-{
-	GtkWidget*vbox;
-	GtkWidget*title;
-	GtkWidget*grid;
-	GtkWidget*sep;
-	GtkWidget*entry_label;
-	GtkWidget*hbox;
-	GtkWidget*btn;
-	GtkWidget*console_lbl;
-	GtkWidget*scrolled_win;
-	char*help="Enter config: <i>desired peaks</i> "
-	"<i>desired resolution</i> <i>desired runtime (min)</i> "
-	"<i>desired backpressure (psi)</i>";
 
-	vbox=gtk_box_new(GTK_ORIENTATION_VERTICAL,12);
-	gtk_widget_set_margin_start(vbox, 16);
-	gtk_widget_set_margin_end(vbox, 16);
-	gtk_widget_set_margin_top(vbox, 16);
-	gtk_widget_set_margin_bottom(vbox, 16);
-	title=gtk_label_new(NULL);
-	gtk_label_set_markup(GTK_LABEL(title),"<b>MonasHPLC desired Run Attributes</b>");
-	gtk_widget_set_halign(title,GTK_ALIGN_START);
-	gtk_box_append(GTK_BOX(vbox),title);
-	
-	/*table*/
-	grid=gtk_grid_new();
-	gtk_grid_set_row_spacing(GTK_GRID(grid),8);
-	gtk_grid_set_column_spacing(GTK_GRID(grid),24);
+static GtkWidget *build_run_config_screen(AppContext *app_ptr) {
+    GtkWidget *vbox;
+    GtkWidget *title;
+    GtkWidget *grid;
+    GtkWidget *sep;
+    GtkWidget *entry_label;
+    GtkWidget *hbox;
+    GtkWidget *btn;
+    GtkWidget *console_lbl;
+    GtkWidget *scrolled_win;
+    char *help = "Enter config: <i>desired peaks</i> "
+                 "<i>desired resolution</i> <i>desired runtime (min)</i> "
+                 "<i>desired backpressure (psi)</i>";
 
-	for(int col=0;col<SIZEOF(bench_head);col++){
-		char header_markup[128];
-		GtkWidget*lbl;
+    vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(vbox, 16);
+    gtk_widget_set_margin_end(vbox, 16);
+    gtk_widget_set_margin_top(vbox, 16);
+    gtk_widget_set_margin_bottom(vbox, 16);
+    title = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(title), "<b>MonasHPLC desired Run Attributes</b>");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(vbox), title);
 
-		snprintf(header_markup,sizeof(header_markup),
-		"<b><u>%s</u></b>",bench_head[col]);
-		lbl=gtk_label_new(NULL);
-		gtk_label_set_markup(GTK_LABEL(lbl),header_markup);
-		gtk_widget_set_halign(lbl,GTK_ALIGN_START);
-		gtk_grid_attach(GTK_GRID(grid),lbl,col,0,1,1);
-	}
+    grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 24);
 
-	for(int row=0;row<SIZEOF(bench_table);row++){
-		for(int col=0;col<SIZEOF(bench_table[0]);col++){
-			GtkWidget*lbl;
+    for (int col = 0; col < BENCH_TABLE_COLS; col++) {
+        char header_markup[128];
+        GtkWidget *lbl;
 
-			lbl=gtk_label_new(NULL);
-			gtk_label_set_markup(GTK_LABEL(lbl),
-				bench_table[row][col]);
-			gtk_widget_set_halign(lbl,GTK_ALIGN_START);
-			gtk_grid_attach(GTK_GRID(grid),lbl,col,row+1,1,1);
-			
-			app->config_tab_lbl[row][col]=lbl;
-		}
-	}
-			
+        snprintf(header_markup, sizeof(header_markup), "<b><u>%s</u></b>", bench_head[col]);
+        lbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(lbl), header_markup);
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_grid_attach(GTK_GRID(grid), lbl, col, 0, 1, 1);
+    }
 
-	gtk_box_append(GTK_BOX(vbox),grid);
+    for (int row = 0; row < BENCH_TABLE_ROWS; row++) {
+        for (int col = 0; col < BENCH_TABLE_COLS; col++) {
+            GtkWidget *lbl;
 
-	sep=gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-	gtk_widget_set_margin_top(sep,8);
-	gtk_widget_set_margin_bottom(sep,8);
-	gtk_box_append(GTK_BOX(vbox),sep);
-	
-	/*cmd entry box*/
-	entry_label=gtk_label_new("Execute config parameters");
-	gtk_widget_set_halign(entry_label,GTK_ALIGN_START);
-	gtk_box_append(GTK_BOX(vbox),entry_label);
-	hbox=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
+            lbl = gtk_label_new(NULL);
+            gtk_label_set_markup(GTK_LABEL(lbl), bench_table[row][col]);
+            gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+            gtk_grid_attach(GTK_GRID(grid), lbl, col, row + 1, 1, 1);
 
-	app->config_entry=gtk_entry_new();
-	gtk_entry_set_placeholder_text(GTK_ENTRY(app->config_entry),help);
-	gtk_widget_set_hexpand(app->config_entry,TRUE);
-	g_signal_connect(app->config_entry,"activate",
-		G_CALLBACK(handle_config),app);
-	gtk_box_append(GTK_BOX(hbox),app->config_entry);
+            app_ptr->config_tab_lbl[row][col] = lbl;
+        }
+    }
 
-	btn=gtk_button_new_with_label("Send");
-	g_signal_connect(btn,"clicked",G_CALLBACK(handle_config),app);
-	gtk_box_append(GTK_BOX(hbox),btn);
-	gtk_box_append(GTK_BOX(vbox),hbox);
+    gtk_box_append(GTK_BOX(vbox), grid);
 
-	/*console*/
-	console_lbl=gtk_label_new("Output");
-	gtk_widget_set_halign(console_lbl,GTK_ALIGN_START);
-	gtk_widget_set_margin_top(console_lbl,8);
-	gtk_box_append(GTK_BOX(vbox),console_lbl);
+    sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(sep, 8);
+    gtk_widget_set_margin_bottom(sep, 8);
+    gtk_box_append(GTK_BOX(vbox), sep);
 
-	scrolled_win = gtk_scrolled_window_new();
-	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-	gtk_widget_set_vexpand(scrolled_win, TRUE);
-	gtk_widget_set_hexpand(scrolled_win, TRUE);
-	gtk_widget_set_size_request(scrolled_win, -1, 120);
+    entry_label = gtk_label_new("Execute config parameters");
+    gtk_widget_set_halign(entry_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(vbox), entry_label);
+    hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 
-	// Create Buffer & Views
-	app->config_console_buffer = gtk_text_buffer_new(NULL);
-	app->config_console_view = gtk_text_view_new_with_buffer(app->config_console_buffer);
-	gtk_text_view_set_editable(GTK_TEXT_VIEW(app->config_console_view), FALSE);
-	gtk_text_view_set_monospace(GTK_TEXT_VIEW(app->config_console_view), TRUE);
-	gtk_text_view_set_left_margin(GTK_TEXT_VIEW(app->config_console_view), 8);
-	gtk_text_view_set_right_margin(GTK_TEXT_VIEW(app->config_console_view), 8);
-	gtk_text_view_set_top_margin(GTK_TEXT_VIEW(app->config_console_view), 8);
-	gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(app->config_console_view), 8);
+    app_ptr->config_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(app_ptr->config_entry), help);
+    gtk_widget_set_hexpand(app_ptr->config_entry, TRUE);
+    g_signal_connect(app_ptr->config_entry, "activate", G_CALLBACK(handle_config), app_ptr);
+    gtk_box_append(GTK_BOX(hbox), app_ptr->config_entry);
 
-	gtk_text_buffer_create_tag(app->config_console_buffer, "stdout_tag", "foreground", "#000000", NULL);
-	gtk_text_buffer_create_tag(app->config_console_buffer, "stderr_tag", "foreground", "#FF3333", NULL);
-	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app->config_console_view);
-	gtk_box_append(GTK_BOX(vbox), scrolled_win);
+    btn = gtk_button_new_with_label("Send");
+    g_signal_connect(btn, "clicked", G_CALLBACK(handle_config), app_ptr);
+    gtk_box_append(GTK_BOX(hbox), btn);
+    gtk_box_append(GTK_BOX(vbox), hbox);
 
-	return vbox;
-}
-static void activate(GtkApplication *app_ptr, gpointer user_data) {
-    AppContext *app = (AppContext *)user_data;
+    console_lbl = gtk_label_new("Output");
+    gtk_widget_set_halign(console_lbl, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(console_lbl, 8);
+    gtk_box_append(GTK_BOX(vbox), console_lbl);
 
-    GtkWidget *window = gtk_application_window_new(app_ptr);
-    gtk_window_set_title(GTK_WINDOW(window), "Engineering Workstation UI (GTK 4)");
-    gtk_window_set_default_size(GTK_WINDOW(window), 700, 400);
+    scrolled_win = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_win), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_vexpand(scrolled_win, TRUE);
+    gtk_widget_set_hexpand(scrolled_win, TRUE);
+    gtk_widget_set_size_request(scrolled_win, -1, 120);
 
-    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_window_set_child(GTK_WINDOW(window), vbox);
+    app_ptr->config_console_buffer = gtk_text_buffer_new(NULL);
+    app_ptr->config_console_view = gtk_text_view_new_with_buffer(app_ptr->config_console_buffer);
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(app_ptr->config_console_view), FALSE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(app_ptr->config_console_view), TRUE);
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(app_ptr->config_console_view), 8);
+    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(app_ptr->config_console_view), 8);
+    gtk_text_view_set_top_margin(GTK_TEXT_VIEW(app_ptr->config_console_view), 8);
+    gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(app_ptr->config_console_view), 8);
 
-    GtkWidget *stack = gtk_stack_new();
-    gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
-    gtk_stack_set_transition_duration(GTK_STACK(stack), 200);
+    gtk_text_buffer_create_tag(app_ptr->config_console_buffer, "stdout_tag", "foreground", "#000000", NULL);
+    gtk_text_buffer_create_tag(app_ptr->config_console_buffer, "stderr_tag", "foreground", "#FF3333", NULL);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_win), app_ptr->config_console_view);
+    gtk_box_append(GTK_BOX(vbox), scrolled_win);
 
-    GtkWidget *stack_switcher = gtk_stack_switcher_new();
-    gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(stack_switcher), GTK_STACK(stack));
-    gtk_widget_set_halign(stack_switcher, GTK_ALIGN_CENTER);
-
-    gtk_widget_set_margin_top(stack_switcher, 6);
-    gtk_widget_set_margin_bottom(stack_switcher, 6);
-
-    gtk_box_append(GTK_BOX(vbox), stack_switcher);
-    gtk_box_append(GTK_BOX(vbox), stack);
-
-    GtkWidget *table_screen = build_table_screen(app);
-    gtk_stack_add_titled(GTK_STACK(stack), table_screen, "table_view", "Run Parameters");
-
-    GtkWidget *blueprint_screen = build_blueprint_screen(app);
-    gtk_stack_add_titled(GTK_STACK(stack), blueprint_screen, "blueprint_view", "Blueprint Inspector");
-
-    GtkWidget *db_screen = build_db_screen(app);
-    gtk_stack_add_titled(GTK_STACK(stack), db_screen, "db_view", "Past Runs");
-
-    GtkWidget*run_config_screen=build_run_config_screen(app);
-    gtk_stack_add_titled(GTK_STACK(stack),run_config_screen,"run_config_view","Config");
-
-    gtk_window_present(GTK_WINDOW(window));
+    return vbox;
 }
 
-int main(int argc, char **argv) {
-    init_dash();
-    init_bench();
-    if(!hplc_query_init())
-    	return 0;
-
-    GtkApplication *gtk_app = gtk_application_new("edu.monash.hplc", G_APPLICATION_DEFAULT_FLAGS);
-    g_signal_connect(gtk_app, "activate", G_CALLBACK(activate), &app);
-
-    int status = g_application_run(G_APPLICATION(gtk_app), argc, argv);
-    g_object_unref(gtk_app);
-
-    hplc_query_destroy();
-    return status;
-}
-
+// Modal Multi-Menu Selection Dialog
 typedef struct {
     GMainLoop *loop;
     enum selectivity_action action;
+    void *arg;
     bool selected;
 } MultiMenuContext;
-
 
 static void on_option_button_clicked(GtkButton *button, gpointer user_data) {
     GtkWidget *window = GTK_WIDGET(user_data);
     MultiMenuContext *ctx = (MultiMenuContext *)g_object_get_data(G_OBJECT(button), "menu_ctx");
     const struct action_arg *choice = (const struct action_arg *)g_object_get_data(G_OBJECT(button), "choice_str");
 
-    // Resolve selectivity_action using the selected string
     if (choice) {
         ctx->action = choice->action;
+        ctx->arg = choice->arg;
         ctx->selected = true;
     }
 
-    // Destroy window, which fires the 'destroy' signal to quit the main loop
     gtk_window_destroy(GTK_WINDOW(window));
 }
 
@@ -978,19 +944,20 @@ static void on_window_destroy(GtkWidget *widget, gpointer user_data) {
     }
 }
 
-enum selectivity_action multi_menu(void *adata) {
-     struct action_arg*options = adata;
-    if (!options){ 
-        return 0; // Fallback default action if data is empty
+enum selectivity_action multi_menu(void *adata, void **out_arg) {
+    struct action_arg *options = (struct action_arg *)adata;
+    if (!options) {
+        if (out_arg) *out_arg = NULL;
+        return 0;
     }
 
     MultiMenuContext ctx = {
         .loop = g_main_loop_new(NULL, FALSE),
         .action = 0,
+        .arg = NULL,
         .selected = false
     };
 
-    // Construct modal prompt window
     GtkWidget *window = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(window), "Select Action");
     gtk_window_set_modal(GTK_WINDOW(window), TRUE);
@@ -1009,37 +976,44 @@ enum selectivity_action multi_menu(void *adata) {
     gtk_widget_set_halign(label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(vbox), label);
 
-    // Iterating over NULL-terminated array of strings
     for (int i = 0; options[i].action != END; i++) {
-    	char*tmp;
-
-	tmp=action_arg_str(options[i]);
+        char *tmp = action_arg_str(options[i]);
         GtkWidget *btn = gtk_button_new_with_label(tmp);
 
-        // Attach references to context and choice string
         g_object_set_data(G_OBJECT(btn), "menu_ctx", &ctx);
         g_object_set_data(G_OBJECT(btn), "choice_str", &options[i]);
 
         g_signal_connect(btn, "clicked", G_CALLBACK(on_option_button_clicked), window);
         gtk_box_append(GTK_BOX(vbox), btn);
-	free(tmp);
-	free(options[i].arg);
+        free(tmp);
     }
 
     gtk_window_present(GTK_WINDOW(window));
 
-    // Block local execution until user clicks an option or closes the dialog
     g_main_loop_run(ctx.loop);
     g_main_loop_unref(ctx.loop);
 
+    // Free unselected option payloads
+    for (int i = 0; options[i].action != END; i++) {
+        if (options[i].arg != ctx.arg) {
+            free(options[i].arg);
+        }
+    }
+
+    if (out_arg) {
+        *out_arg = ctx.arg;
+    }
+
     return ctx.action;
 }
+
+// Metadata Update Handler
 void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action, void *adata)
 {
     char tmp_brand[100];
     char tmp_dims[100];
     char tmp_wavelength[32];
-    
+
     char *colors[] = {
         "<span foreground=\"lime\">%s</span>",
         "<span foreground=\"cyan\">%s</span>",
@@ -1048,118 +1022,175 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
     int index = -1, color = 0, start = 0, end = -1;
 
     if (action == MULTI) {
-    	/*frees adata args*/
-        action = multi_menu(adata);
+        void *selected_arg = NULL;
+        action = multi_menu(adata, &selected_arg);
+        adata = selected_arg;
     }
 
-    // Handle SUCCESS action: clear column 1, set topmost cell to "Success"
     if (action == SUCCESS) {
         dash_table[0][1] = "Success";
-        for (int i = 1; i < 12; i++) {
+        for (int i = 1; i < active_dash_rows; i++) {
             dash_table[i][1] = "";
         }
-        update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+        update_screen1_table_data(&app, (const char * (*)[DASH_TABLE_COLUMNS])dash_table);
+        if (adata) free(adata);
         return;
     }
 
-    // Action handling and data updates
     switch (action) {
     case CITEMP:
     case CDTEMP:
-        m->temperature = *(hplc_sint *)adata;
-        index = 10;
+        if (adata) m->temperature = *(hplc_sint *)adata;
+        index = (m->run.type == GRA ? 12 : 10);
         color = 2;
         end = -1;
         break;
     case CSOL:
-        m->slvnt = (char *)adata;
+        if (adata) m->slvnt = (char *)adata;
         index = 0;
         color = 0;
         end = -1;
         break;
     case CIB:
     case CDB:
-        m->run.slvnt_percent = *(hplc_sint *)adata;
-        index = 3;
+        if (m->run.type == ISO) {
+            if (adata) m->run.iso.slvnt_percent = *(hplc_sint *)adata;
+            index = 3;
+        } else {
+            if (adata) m->run.gra.slvnt_start = *(hplc_sint *)adata;
+            index = 3;
+        }
         color = 0;
         end = -1;
         break;
+    case CIBE:
+        if (m->run.type == GRA) {
+            if (adata) m->run.gra.slvnt_end = *(hplc_sint *)adata;
+            index = 4;
+            color = 0;
+            end = -1;
+        }
+        break;
+    case CMTG:
+    case CDVTG:
+        if (m->run.type == GRA) {
+            if (adata) m->run.gra.tg = *(hplc_sint *)adata;
+            index = 5;
+            color = 0;
+            end = -1;
+        }
+        break;
     case CDFLOW:
     case CIFLOW:
-        m->flow_rate = *(hplc_sint *)adata;
-        index = 4;
+    case CMFLOW:
+        if (adata) m->flow_rate = *(hplc_sint *)adata;
+        index = (m->run.type == GRA ? 6 : 4);
         color = 1;
         end = -1;
         break;
     case SPP:
         color = 1;
         print_data("Changed SPP\n");
+        hplc_column_brand(&m->column);
+        index = (m->run.type == GRA ? 10 : 8);
         break;
     case CLIG:
+        if (adata) {
+            free(m->column.clmn_phase);
+            m->column.clmn_phase = strdup((char *)adata);
+        }
+        hplc_column_brand(&m->column);
         color = 0;
-        index = 8;
+        index = (m->run.type == GRA ? 10 : 8);
         break;
     case CDPS:
-    case CCL:
+        if (adata) m->column.clmn_bead_size = *(hplc_sint *)adata;
+        hplc_column_brand(&m->column);
         color = 1;
-        index = 9;
+        index = (m->run.type == GRA ? 11 : 9);
+        break;
+    case CCL:
+        if (adata) m->column.clmn_length = *(hplc_sint *)adata;
+        hplc_column_brand(&m->column);
+        color = 1;
+        index = (m->run.type == GRA ? 11 : 9);
         break;
     default:
         print_error("Option not recognised:%s\n", resolve_action_name(action));
         break;
     }
 
-    // Convert hplc_sint values to heap-allocated strings
     char *str_ph   = hplc_sint_str(m->pH);
-    char *str_sp   = hplc_sint_str(m->slvnt_percent);
     char *str_fr   = hplc_sint_str(m->flow_rate);
     char *str_sc   = hplc_sint_str(m->sample_conc);
     char *str_temp = hplc_sint_str(m->temperature);
     char *str_brand= hplc_clmn_brand_str(m->column.brand);
 
-    // Convert dimension hplc_sint values
     char *s_len  = hplc_sint_str(m->column.clmn_length);
     char *s_id   = hplc_sint_str(m->column.clmn_id);
     char *s_bead = hplc_sint_str(m->column.clmn_bead_size);
 
-    // Format composite strings
-    snprintf(tmp_brand, sizeof(tmp_brand), "%s %s", m->column.clmn_phase,str_brand);
+    snprintf(tmp_brand, sizeof(tmp_brand), "%s %s", m->column.clmn_phase, str_brand);
     snprintf(tmp_dims, sizeof(tmp_dims), "%sx%sx%s", s_len, s_id, s_bead);
     snprintf(tmp_wavelength, sizeof(tmp_wavelength), "%d", m->wavelength);
 
-    // Free dimension string temporaries
     free(s_len);
     free(s_id);
     free(s_bead);
 
-    // Populate table cells
-    dash_table[0][1]  = m->slvnt;
-    dash_table[1][1]  = str_ph;
-    dash_table[2][1]  = (char *)hplc_run_type_str(m->type);
-    dash_table[3][1]  = str_sp;
-    dash_table[4][1]  = str_fr;
-    dash_table[5][1]  = m->njctn_volume;
-    dash_table[6][1]  = m->njctn_type;
-    dash_table[7][1]  = str_sc;
-    dash_table[8][1]  = tmp_brand;
-    dash_table[9][1]  = tmp_dims;
-    dash_table[10][1] = str_temp;
-    dash_table[11][1] = tmp_wavelength;
+    if (m->run.type == ISO) {
+        char *str_sp = hplc_sint_str(m->run.iso.slvnt_percent);
 
-    // Apply markup/highlighting if an index was targeted
-    if (index < 0 || index >= 12) {
-        update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+        dash_table[0][1]  = m->slvnt;
+        dash_table[1][1]  = str_ph;
+        dash_table[2][1]  = "Isocratic";
+        dash_table[3][1]  = str_sp;
+        dash_table[4][1]  = str_fr;
+        dash_table[5][1]  = m->njctn_volume;
+        dash_table[6][1]  = m->njctn_type;
+        dash_table[7][1]  = str_sc;
+        dash_table[8][1]  = tmp_brand;
+        dash_table[9][1]  = tmp_dims;
+        dash_table[10][1] = str_temp;
+        dash_table[11][1] = tmp_wavelength;
+
+        free(str_sp);
+    } else {
+        char *str_b_start = hplc_sint_str(m->run.gra.slvnt_start);
+        char *str_b_end   = hplc_sint_str(m->run.gra.slvnt_end);
+        char *str_tg      = hplc_sint_str(m->run.gra.tg);
+
+        dash_table[0][1]  = m->slvnt;
+        dash_table[1][1]  = str_ph;
+        dash_table[2][1]  = "Gradient";
+        dash_table[3][1]  = str_b_start;
+        dash_table[4][1]  = str_b_end;
+        dash_table[5][1]  = str_tg;
+        dash_table[6][1]  = str_fr;
+        dash_table[7][1]  = m->njctn_volume;
+        dash_table[8][1]  = m->njctn_type;
+        dash_table[9][1]  = str_sc;
+        dash_table[10][1] = tmp_brand;
+        dash_table[11][1] = tmp_dims;
+        dash_table[12][1] = str_temp;
+        dash_table[13][1] = tmp_wavelength;
+
+        free(str_b_start);
+        free(str_b_end);
+        free(str_tg);
+    }
+
+    if (index < 0 || index >= active_dash_rows) {
+        update_screen1_table_data(&app, (const char * (*)[DASH_TABLE_COLUMNS])dash_table);
     } else {
         char *original = dash_table[index][1];
 
         if (end == -1) {
-            // Full string highlight
             char *markup = g_markup_printf_escaped(colors[color], original);
             dash_table[index][1] = markup;
-            update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+            update_screen1_table_data(&app, (const char * (*)[DASH_TABLE_COLUMNS])dash_table);
             g_free(markup);
         } else {
-            // Substring partial highlight [start, end)
             size_t len = strlen(original);
             if (start >= 0 && (size_t)start < len && end > start && (size_t)end <= len) {
                 char prefix[100] = {0};
@@ -1180,38 +1211,142 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
                 snprintf(full_markup, sizeof(full_markup), "%s%s%s", prefix, escaped_target, suffix);
 
                 dash_table[index][1] = full_markup;
-                update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+                update_screen1_table_data(&app, (const char * (*)[DASH_TABLE_COLUMNS])dash_table);
                 g_free(escaped_target);
             } else {
-                update_screen1_table_data(&app, (const char * (*)[2])dash_table);
+                update_screen1_table_data(&app, (const char * (*)[DASH_TABLE_COLUMNS])dash_table);
             }
         }
         dash_table[index][1] = original;
     }
 
-    // Clean up heap allocations from hplc_sint_str
     free(str_ph);
-    free(str_sp);
     free(str_fr);
     free(str_sc);
     free(str_temp);
     free(str_brand);
+    if (adata) free(adata);
 }
-void update_bench(struct benchmarks*ben)
+
+void update_bench(struct benchmarks *ben)
 {
-	char tmp[2][50],*tmp1[2];
-	
-	snprintf(tmp[0],sizeof(tmp[0]),"%d",ben->peaks);
-	tmp1[0]=hplc_sint_str(ben->resolution);
-	tmp1[1]=hplc_sint_str(ben->runtime);
-	snprintf(tmp[1],sizeof(tmp[3]),"%d",ben->backpressure);
+    char tmp[2][50], *tmp1[2];
 
-	bench_table[0][1]=tmp[0];
-	bench_table[1][1]=tmp1[0];
-	bench_table[2][1]=tmp1[1];
-	bench_table[3][1]=tmp[1];
+    snprintf(tmp[0], sizeof(tmp[0]), "%d", ben->peaks);
+    tmp1[0] = hplc_sint_str(ben->resolution);
+    tmp1[1] = hplc_sint_str(ben->runtime);
+    snprintf(tmp[1], sizeof(tmp[1]), "%d", ben->backpressure);
 
-	update_config_screen_table_data(&app,(const char*(*)[2])bench_table);
-	free(tmp1[0]);
-	free(tmp1[1]);
+    bench_table[0][1] = tmp[0];
+    bench_table[1][1] = tmp1[0];
+    bench_table[2][1] = tmp1[1];
+    bench_table[3][1] = tmp[1];
+
+    update_config_screen_table_data(&app, (const char * (*)[BENCH_TABLE_COLS])bench_table);
+    free(tmp1[0]);
+    free(tmp1[1]);
+}
+
+// Mode Selection Dialog Callbacks
+static void on_mode_selected(GtkButton *btn, gpointer user_data) {
+    enum hplc_run_type mode = (enum hplc_run_type)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "mode_enum"));
+    selected_mode = mode;
+
+    GtkWidget *dialog = GTK_WIDGET(user_data);
+    init_dash();
+    rebuild_dash_table_ui(&app);
+    gtk_window_destroy(GTK_WINDOW(dialog));
+}
+
+static void show_mode_selection_dialog(GtkWindow *parent) {
+    GtkWidget *dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "Select HPLC Run Mode");
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
+    gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_start(vbox, 24);
+    gtk_widget_set_margin_end(vbox, 24);
+    gtk_widget_set_margin_top(vbox, 24);
+    gtk_widget_set_margin_bottom(vbox, 24);
+    gtk_window_set_child(GTK_WINDOW(dialog), vbox);
+
+    GtkWidget *lbl = gtk_label_new("Please select the HPLC operating mode to proceed:");
+    gtk_box_append(GTK_BOX(vbox), lbl);
+
+    GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_halign(hbox, GTK_ALIGN_CENTER);
+
+    GtkWidget *btn_iso = gtk_button_new_with_label("Isocratic Mode (ISO)");
+    g_object_set_data(G_OBJECT(btn_iso), "mode_enum", GINT_TO_POINTER(ISO));
+    g_signal_connect(btn_iso, "clicked", G_CALLBACK(on_mode_selected), dialog);
+    gtk_box_append(GTK_BOX(hbox), btn_iso);
+
+    GtkWidget *btn_gra = gtk_button_new_with_label("Gradient Mode (GRA)");
+    g_object_set_data(G_OBJECT(btn_gra), "mode_enum", GINT_TO_POINTER(GRA));
+    g_signal_connect(btn_gra, "clicked", G_CALLBACK(on_mode_selected), dialog);
+    gtk_box_append(GTK_BOX(hbox), btn_gra);
+
+    gtk_box_append(GTK_BOX(vbox), hbox);
+    gtk_window_present(GTK_WINDOW(dialog));
+}
+
+// App Initialization & Main
+static void activate(GtkApplication *app_ptr, gpointer user_data) {
+    AppContext *app_ptr_ctx = (AppContext *)user_data;
+
+    GtkWidget *window = gtk_application_window_new(app_ptr);
+    app_ptr_ctx->window = window;
+    gtk_window_set_title(GTK_WINDOW(window), "Engineering Workstation UI (GTK 4)");
+    gtk_window_set_default_size(GTK_WINDOW(window), 700, 400);
+
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_window_set_child(GTK_WINDOW(window), vbox);
+
+    GtkWidget *stack = gtk_stack_new();
+    gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
+    gtk_stack_set_transition_duration(GTK_STACK(stack), 200);
+
+    GtkWidget *stack_switcher = gtk_stack_switcher_new();
+    gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(stack_switcher), GTK_STACK(stack));
+    gtk_widget_set_halign(stack_switcher, GTK_ALIGN_CENTER);
+
+    gtk_widget_set_margin_top(stack_switcher, 6);
+    gtk_widget_set_margin_bottom(stack_switcher, 6);
+
+    gtk_box_append(GTK_BOX(vbox), stack_switcher);
+    gtk_box_append(GTK_BOX(vbox), stack);
+
+    GtkWidget *table_screen = build_table_screen(app_ptr_ctx);
+    gtk_stack_add_titled(GTK_STACK(stack), table_screen, "table_view", "Run Parameters");
+
+    GtkWidget *blueprint_screen = build_blueprint_screen(app_ptr_ctx);
+    gtk_stack_add_titled(GTK_STACK(stack), blueprint_screen, "blueprint_view", "Blueprint Inspector");
+
+    GtkWidget *db_screen = build_db_screen(app_ptr_ctx);
+    gtk_stack_add_titled(GTK_STACK(stack), db_screen, "db_view", "Past Runs");
+
+    GtkWidget *run_config_screen = build_run_config_screen(app_ptr_ctx);
+    gtk_stack_add_titled(GTK_STACK(stack), run_config_screen, "run_config_view", "Config");
+
+    gtk_window_present(GTK_WINDOW(window));
+
+    show_mode_selection_dialog(GTK_WINDOW(window));
+}
+
+int main(int argc, char **argv) {
+    init_dash();
+    init_bench();
+    if (!hplc_query_init())
+        return 0;
+
+    GtkApplication *gtk_app = gtk_application_new("edu.monash.hplc", G_APPLICATION_DEFAULT_FLAGS);
+    g_signal_connect(gtk_app, "activate", G_CALLBACK(activate), &app);
+
+    int status = g_application_run(G_APPLICATION(gtk_app), argc, argv);
+    g_object_unref(gtk_app);
+
+    hplc_query_destroy();
+    return status;
 }

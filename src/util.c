@@ -29,7 +29,6 @@ int tokenize_str1(char*str,char*argv[],int argv_size,char delimiter)
 	}
 	return argc;
 }
-#ifdef LOGIC_H
 char*action_arg_str(struct action_arg arg)
 {
 	char*action,*tmp,*buf;
@@ -51,4 +50,3 @@ char*action_arg_str(struct action_arg arg)
 		return buf;
 	}
 }
-#endif

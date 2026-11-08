@@ -25,8 +25,9 @@ CIFLOW,
 CMTG,
 CDVTG,
 CMFLOW,
-CIBE,
-KGS
+KGS,
+KGS1,
+EWC
 };
 struct benchmarks{
         int peaks;

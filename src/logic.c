@@ -135,6 +135,7 @@ int lower_b(struct hplc_data*data,struct benchmarks*bench,void**action_data)
 		*action_data=malloc(sizeof(hplc_sint));
 		tmp=*action_data;
 		*tmp=data->data.run.iso.slvnt_percent-hplc_scale_int(10);
+		data->data.run.iso.slvnt_percent-=*tmp;
 		return 1; 
 	}
 	return HPLC_MAXRUNTIME;
@@ -147,12 +148,14 @@ int change_temperature(struct hplc_data*data,struct benchmarks*bench,void**actio
 		*action_data=malloc(sizeof(hplc_sint));
 		tmp=*action_data;
 		*tmp=hplc_scale_int(TEMP1);
+		data->data.temperature=*tmp;
 		return 1;
 	}
 	if(data->data.temperature<hplc_scale_int(MAX_TEMP)){
 		*action_data=malloc(sizeof(hplc_sint));
 		tmp=*action_data;
 		*tmp=hplc_scale_int(MAX_TEMP);
+		data->data.temperature=*tmp;
 		return 1;
 	}
 	return HPLC_MAXTEMP;
@@ -163,6 +166,8 @@ int change_solvent(struct hplc_data*data,struct benchmarks*bench,void**action_da
 		if(!strcmp(solvents[i],data->data.slvnt)){
 			if(i+1<SIZEOF(solvents)){
 				*action_data=strdup(solvents[i]);
+				free(data->data.slvnt);
+				data->data.slvnt=strdup(solvents[i]);
 				return 1;
 			}
 			return HPLC_SOLVENT;
@@ -175,6 +180,8 @@ int change_column(struct hplc_data*data,struct benchmarks*bench,void**action_dat
 	/*only checks for past use for processing speed reasons*/
 		if(!hplc_run_col_check(column_types[i])){
 			*action_data=strdup(column_types[i]);
+			free(data->data.column.clmn_phase);
+			data->data.column.clmn_phase=strdup(column_types[i]);
 			return CLIG;
 		}
 	return HPLC_LIGAND;
@@ -220,6 +227,7 @@ struct benchmarks*bench,enum selectivity_issue issue,void**action_data)
 				return ERROR;
 			}
 			*(hplc_sint*)action_data=(hplc_sint)(ratio*data->data.flow_rate);
+			data->data.flow_rate-=*(hplc_sint*)*action_data;
 			return CDFLOW;
 		}
 		for(int i=0;i<SIZEOF(funcs);i++){
@@ -236,6 +244,7 @@ struct benchmarks*bench,enum selectivity_issue issue,void**action_data)
 		*action_data=malloc(sizeof(hplc_sint));
 		*(hplc_sint*)*action_data=data->data.run.iso.slvnt_percent+
 			hplc_scale_int(IB_AMOUNT);
+		data->data.run.iso.slvnt_percent+=*(hplc_sint*)*action_data;
 		return CIB;
 	default:
 		print_data("Option unrecognised\n");
@@ -295,6 +304,7 @@ enum selectivity_action logic(struct hplc_data*data,struct benchmarks*bench,void
 				aarg[0].action=CDPS;
 				*(hplc_sint*)(aarg[0].arg)=
 					data->data.column.clmn_bead_size;
+				hplc_column_brand(&data->data.column);
 				aarg[1].action=CIFLOW;
 				*(hplc_sint*)(aarg[1].arg)=hs_tmp;
 				aarg[2].action=END;
@@ -452,10 +462,12 @@ const char*resolve_action_name(enum selectivity_action action)
 	{CDB,"Decrease %B"},
 	{CDFLOW,"Decrease Flow Rate"},
 	{CIFLOW,"Increase Flow Rate"},
-	{CMTG,"Multiply tg"},
+	{CMTG,"Multiply tg (from scouting)"},
 	{CDVTG,"Divide tg"},
 	{CMFLOW,"Multiply flow rate"},
-	{CIBE,"Increase %B end"}
+	{KGS,"Trimed the unused %B window by 2% and cut tG in proportion"},
+	{KGS1,"Trimed the unused %B window by 1% and cut tG in proportion"},
+	{EWC,"Gradient start and end %B too close together, unable to reduce"}
 	};
 	for(int i=0;i<SIZEOF(anames);i++)
 		if(anames[i].action==action)
@@ -519,38 +531,46 @@ double hplc_calc_gs(const struct hplc_run_metadata *m)
 
     return (delta_phi * vm) / (tg * flow);
 }
-/*assumes run type is gra, check before calling*/
-bool increased_gs(struct hplc_run_metadata*data)
+bool decreased_gs(struct hplc_run_metadata*data)
 {
-	/*TODO optional:change hplc_run_meta_check to allow NULL for pk*/
-	char*tmp;
+	char*tmp=NULL;
 	hplc_sint ttg;
 	bool ret;
 
 	ttg=data->run.gra.tg;
-	data->run.gra.tg<<=1;
+	data->run.gra.tg/=2.4;
 	ret=hplc_run_meta_check(data,&tmp);
-	free(tmp);
+	if(tmp!=NULL)
+		free(tmp);
+	data->run.gra.tg=ttg;
+	if(ret)
+		return true;
+	return false;
+}
+/*assumes run type is gra, check before calling
+ * checking for decreased_gs is intentional*/
+bool increased_gs(struct hplc_run_metadata*data)
+{
+	/*TODO optional:change hplc_run_meta_check to allow NULL for pk*/
+	char*tmp=NULL;
+	hplc_sint ttg;
+	bool ret;
+
+	ret=decreased_gs(data);
+	ttg=data->run.gra.tg;
+	if(!ret){
+		data->run.gra.tg<<=1;
+	}else{
+		data->run.gra.tg/=1.2;		
+	}
+	ret=hplc_run_meta_check(data,&tmp);
+	if(tmp!=NULL)
+		free(tmp);
 	data->run.gra.tg=ttg;
 	if(ret)
 		return true;
 	return false;
 	
-}
-bool decreased_gs(struct hplc_run_metadata*data)
-{
-	char*tmp;
-	hplc_sint ttg;
-	bool ret;
-
-	ttg=data->run.gra.tg;
-	data->run.gra.tg>>=1;
-	ret=hplc_run_meta_check(data,&tmp);
-	free(tmp);
-	data->run.gra.tg=ttg;
-	if(ret)
-		return true;
-	return false;
 }
 enum selectivity_action
 gra_logic(struct hplc_data *data, struct benchmarks *bench, void **action_data)
@@ -585,7 +605,7 @@ gra_logic(struct hplc_data *data, struct benchmarks *bench, void **action_data)
                 print_error("gra_logic: malloc failed (G1_DEC)\n");
                 return ERROR;
             }
-	    data->data.run.gra.tg*=1.2;
+	    data->data.run.gra.tg*=2.4;
             *(hplc_sint*)*action_data =hplc_strtosi("1.2",NULL);
 
             return CMTG;
@@ -626,8 +646,13 @@ gra_logic(struct hplc_data *data, struct benchmarks *bench, void **action_data)
             // Rs >= spec
             hplc_sint last_peak_rt = data->csv.peaks[data->csv.peak_count - 1].rtime;
             
+            if (rt <= bench->runtime) {
+                // Case G4: Rs >= spec and tR <= run-time spec -> Method met
+                *action_data = NULL;
+                return SUCCESS;
+	    }
             // Check for unused/wasted %B window (Case G3)
-            if (last_peak_rt < data->data.run.gra.tg && (data->data.run.gra.tg - last_peak_rt) > hplc_scale_int(2)) {
+            else{
                 // Case G3: Keep GS, shrink %B window and cut tG in proportion
                 *action_data=malloc(sizeof(struct action_arg)*3);
                 if (!*action_data) {
@@ -635,23 +660,28 @@ gra_logic(struct hplc_data *data, struct benchmarks *bench, void **action_data)
                     return ERROR;
                 }
 		aarg=*action_data;
-                double ratio = (double)last_peak_rt / data->data.run.gra.tg;
+                double ratio;
                 hplc_sint delta_b = data->data.run.gra.slvnt_end -
 			data->data.run.gra.slvnt_start;
 
-		data->data.run.gra.tg*=ratio;
-		data->data.run.gra.slvnt_end+=delta_b*ratio;
-                return KGS;
-            } else if (rt <= bench->runtime) {
-                // Case G4: Rs >= spec and tR <= run-time spec -> Method met
-                *action_data = NULL;
-                return SUCCESS;
-            } else {
-                // Runtime spec exceeded -> fall back to flow efficiency logic
-                //return efficiency(data, bench, action_data);
-		//TODO
-		print_data("Theoritical gra decrease rt function\n");
-		return ERROR;
+		data->data.run.gra.slvnt_end-=hplc_scale_int(1);
+		data->data.run.gra.slvnt_start+=hplc_scale_int(1);
+		if(data->data.run.gra.slvnt_end>data->data.run.gra.slvnt_start){
+			ratio=(data->data.run.gra.slvnt_end-
+				data->data.run.gra.slvnt_start)/((double)delta_b);
+			data->data.run.gra.tg*=ratio;
+	                return KGS;
+		}
+		else{
+			data->data.run.gra.slvnt_end+=hplc_scale_int(1);
+			if(data->data.run.gra.slvnt_end>data->data.run.gra.slvnt_start){
+				ratio=(data->data.run.gra.slvnt_end-
+					data->data.run.gra.slvnt_start)/((double)delta_b);
+				data->data.run.gra.tg*=ratio;
+				return KGS1;
+			}
+			return EWC;
+		}
             }
         }
     } else {

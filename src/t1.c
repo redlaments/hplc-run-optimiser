@@ -33,7 +33,7 @@ char *bench_head[BENCH_TABLE_COLS] = {
     "Parameter",
     "Value"
 };
-struct benchmarks bench = {7, 1.4, 15, 4000};
+struct benchmarks bench;
 bool screen = false;
 
 static const char *const TABLE_HEADERS[DASH_TABLE_COLUMNS] = {
@@ -209,6 +209,10 @@ void init_bench()
         {"Backpressure (psi)", "4000"}
     };
     memcpy(bench_table, name, sizeof(name));
+    bench.peaks=7;
+    bench.resolution=hplc_strtosi("1.4",NULL);
+    bench.runtime=hplc_scale_int(15);
+    bench.backpressure=4000;
 }
 
 // Backend Execution Logic
@@ -218,21 +222,21 @@ int add_run(char *input)
     struct hplc_data hdata;
     enum selectivity_action action;
     void *adata = NULL;
-    char *new_pk;
+    char *new_pk=NULL;
 
     f = file_open(input, &hdata.data);
     if (!f) {
-        fprintf(stderr, "file_open failed check your file_name adheres to the naming standard!\n");
+        print_error("file_open failed check your file_name adheres to the naming standard!\n");
         return 0;
     }
     if (hplc_column_phase(&hdata.data) < 0) {
-        fprintf(stderr, "Column phase %s is invalid\n", hdata.data.column.clmn_phase);
+        print_error("Column phase %s is invalid\n", hdata.data.column.clmn_phase);
         hplc_metadata_destroy(&hdata.data);
         fclose(f);
         return 0;
     }
     if (!csv_parse_file(f, &hdata)) {
-        fprintf(stderr, "csv parsing failed\n");
+        print_error("csv parsing failed\n");
         hplc_metadata_destroy(&hdata.data);
         fclose(f);
         return 0;
@@ -250,73 +254,80 @@ int add_run(char *input)
         action = logic(&hdata, &bench, &adata);
     }
 
-    switch (action) {
-    case CITEMP:
-    case CDTEMP:
-        hdata.data.temperature = *(hplc_sint *)adata;
-        break;
-    case CSOL:
-        hdata.data.slvnt = (char *)adata;
-        break;
-    case CIB:
-    case CDB:
-        if (hdata.data.run.type == ISO) {
-            hdata.data.run.iso.slvnt_percent = *(hplc_sint *)adata;
-        } else {
-            hdata.data.run.gra.slvnt_start = *(hplc_sint *)adata;
-        }
-        break;
-    case CIBE:
-        if (hdata.data.run.type == GRA) {
-            hdata.data.run.gra.slvnt_end = *(hplc_sint *)adata;
-        }
-        break;
-    case CMTG:
-    case CDVTG:
-        if (hdata.data.run.type == GRA) {
-            hdata.data.run.gra.tg = *(hplc_sint *)adata;
-        }
-        break;
-    case CDFLOW:
-    case CIFLOW:
-    case CMFLOW:
-        hdata.data.flow_rate = *(hplc_sint *)adata;
-        break;
-    case SUCCESS:
-        update_metadata(&hdata.data, action, adata);
-        free(adata);
-        hplc_destroy(&hdata);
-        fclose(f);
-        return 1;
-    case SPP:
-        print_data("Changed SPP\n");
-        hplc_column_brand(&hdata.data.column);
-        break;
-    case CLIG:
-        free(hdata.data.column.clmn_phase);
-        hdata.data.column.clmn_phase = strdup((char *)adata);
-        hplc_column_brand(&hdata.data.column);
-        break;
-    case CDPS:
-        hdata.data.column.clmn_bead_size = *(hplc_sint *)adata;
-        hplc_column_brand(&hdata.data.column);
-        break;
-    case CCL:
-        hdata.data.column.clmn_length = *(hplc_sint *)adata;
-        hplc_column_brand(&hdata.data.column);
-        break;
-    case MULTI:
-    case SMULT:
-        // Evaluated inside update_metadata via multi_menu choice
-        break;
-    default:
-        print_error("Option not recognised:%s\n", resolve_action_name(action));
-        return 0;
+    if (action == MULTI ){
+        void *selected_arg = NULL;
+        void *options_array = adata;
+        action = multi_menu(options_array, &selected_arg);
+        free(options_array);
+        adata = selected_arg;
+
+	switch (action) {
+/**/	    case CDFLOW:
+		hdata.data.flow_rate-=*(hplc_sint*)adata;
+		break;
+/**/	    case CIFLOW:
+		hdata.data.flow_rate+=*(hplc_sint*)adata;
+		break;
+/**/	    case SUCCESS:
+		update_metadata(&hdata.data, action, adata);
+		if (adata) free(adata);
+		hplc_destroy(&hdata);
+		fclose(f);
+		return 1;
+/**/	    case SPP:
+		print_data("Changed SPP\n");
+		hplc_column_brand(&hdata.data.column);
+		break;
+/**/	    case CDPS:
+		hdata.data.column.clmn_bead_size = *(hplc_sint *)adata;
+		hplc_column_brand(&hdata.data.column);
+		break;
+/**/	    case CCL:
+		hdata.data.column.clmn_length = *(hplc_sint *)adata;
+		hplc_column_brand(&hdata.data.column);
+		break;
+	    default:
+		print_error("Option not recognised:%s\n", resolve_action_name(action));
+		if (adata) free(adata);
+		hplc_destroy(&hdata);
+		fclose(f);
+		return 0;
+	    }
+    }
+    else{
+	    switch (action) {
+	    case SUCCESS:
+		update_metadata(&hdata.data, action, adata);
+	    case ERROR:
+		free(adata);
+		hplc_destroy(&hdata);
+		fclose(f);
+		return 1;
+	    case SPP:
+		print_data("Changed SPP\n");
+		hplc_column_brand(&hdata.data.column);
+		break;
+	    case CLIG:
+		hplc_column_brand(&hdata.data.column);
+		break;
+	    case CDPS:
+		hplc_column_brand(&hdata.data.column);
+		break;
+	    case CCL:
+		hplc_column_brand(&hdata.data.column);
+		break;
+	    default:
+		break;
+	    }
     }
 
     if (!hplc_run_meta_check(&hdata.data, &new_pk)) {
         update_metadata(&hdata.data, action, adata);
     } else {
+    	char*a_tmp=action_str(action,adata);
+	print_data("%s:Found %s matching change, changing that\n",a_tmp,new_pk);
+	free(a_tmp);
+
         add_run(new_pk);
         free(new_pk);
     }
@@ -371,36 +382,42 @@ void gui_log(AppContext *app_ptr, const char *text, bool is_error) {
 
 void print_data(const char *restrict format, ...)
 {
-    va_list ap;
+    va_list ap,ap_copy;
     char *tmp;
     size_t size;
 
     va_start(ap, format);
+    va_copy(ap_copy,ap);
 
     size = vsnprintf(NULL, 0, format, ap);
+    va_end(ap);
+
     tmp = malloc(sizeof(char) * ++size);
-    vsnprintf(tmp, size, format, ap);
+    vsnprintf(tmp, size, format, ap_copy);
+    va_end(ap_copy);
+
     gui_log(&app, tmp, false);
     free(tmp);
-
-    va_end(ap);
 }
 
 void print_error(char *format, ...)
 {
-    va_list ap;
+    va_list ap,ap_copy;
     char *tmp;
     size_t size;
 
     va_start(ap, format);
+    va_copy(ap_copy,ap);
 
     size = vsnprintf(NULL, 0, format, ap);
+    va_end(ap);
+
     tmp = malloc(sizeof(char) * ++size);
-    vsnprintf(tmp, size, format, ap);
+    vsnprintf(tmp, size, format, ap_copy);
+    va_end(ap_copy);
+
     gui_log(&app, tmp, true);
     free(tmp);
-
-    va_end(ap);
 }
 
 void config_help()
@@ -435,8 +452,8 @@ static void handle_config(GtkButton *button, gpointer user_data) {
         config_help();
     } else {
         bench.peaks = strtol(argv[0], NULL, 10);
-        bench.resolution = strtod(argv[1], NULL);
-        bench.runtime = strtod(argv[2], NULL);
+        bench.resolution = hplc_strtosi(argv[1], NULL);
+        bench.runtime = hplc_strtosi(argv[2], NULL);
         bench.backpressure = strtol(argv[3], NULL, 10);
         update_bench(&bench);
     }
@@ -1006,8 +1023,6 @@ enum selectivity_action multi_menu(void *adata, void **out_arg) {
 
     return ctx.action;
 }
-
-// Metadata Update Handler
 void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action, void *adata)
 {
     char tmp_brand[100];
@@ -1020,12 +1035,10 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
         "<span foreground=\"orange\">%s</span>"
     };
     int index = -1, color = 0, start = 0, end = -1;
-
-    if (action == MULTI) {
-        void *selected_arg = NULL;
-        action = multi_menu(adata, &selected_arg);
-        adata = selected_arg;
-    }
+    
+    char*a_tmp=action_str(action,adata);
+    print_data("%s\n",a_tmp);
+    free(a_tmp);
 
     if (action == SUCCESS) {
         dash_table[0][1] = "Success";
@@ -1033,20 +1046,17 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
             dash_table[i][1] = "";
         }
         update_screen1_table_data(&app, (const char * (*)[DASH_TABLE_COLUMNS])dash_table);
-        if (adata) free(adata);
         return;
     }
 
     switch (action) {
     case CITEMP:
     case CDTEMP:
-        if (adata) m->temperature = *(hplc_sint *)adata;
         index = (m->run.type == GRA ? 12 : 10);
         color = 2;
         end = -1;
         break;
     case CSOL:
-        if (adata) m->slvnt = (char *)adata;
         index = 0;
         color = 0;
         end = -1;
@@ -1054,27 +1064,16 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
     case CIB:
     case CDB:
         if (m->run.type == ISO) {
-            if (adata) m->run.iso.slvnt_percent = *(hplc_sint *)adata;
             index = 3;
         } else {
-            if (adata) m->run.gra.slvnt_start = *(hplc_sint *)adata;
             index = 3;
         }
         color = 0;
         end = -1;
         break;
-    case CIBE:
-        if (m->run.type == GRA) {
-            if (adata) m->run.gra.slvnt_end = *(hplc_sint *)adata;
-            index = 4;
-            color = 0;
-            end = -1;
-        }
-        break;
     case CMTG:
     case CDVTG:
         if (m->run.type == GRA) {
-            if (adata) m->run.gra.tg = *(hplc_sint *)adata;
             index = 5;
             color = 0;
             end = -1;
@@ -1083,7 +1082,6 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
     case CDFLOW:
     case CIFLOW:
     case CMFLOW:
-        if (adata) m->flow_rate = *(hplc_sint *)adata;
         index = (m->run.type == GRA ? 6 : 4);
         color = 1;
         end = -1;
@@ -1095,22 +1093,16 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
         index = (m->run.type == GRA ? 10 : 8);
         break;
     case CLIG:
-        if (adata) {
-            free(m->column.clmn_phase);
-            m->column.clmn_phase = strdup((char *)adata);
-        }
         hplc_column_brand(&m->column);
         color = 0;
         index = (m->run.type == GRA ? 10 : 8);
         break;
     case CDPS:
-        if (adata) m->column.clmn_bead_size = *(hplc_sint *)adata;
         hplc_column_brand(&m->column);
         color = 1;
         index = (m->run.type == GRA ? 11 : 9);
         break;
     case CCL:
-        if (adata) m->column.clmn_length = *(hplc_sint *)adata;
         hplc_column_brand(&m->column);
         color = 1;
         index = (m->run.type == GRA ? 11 : 9);
@@ -1123,23 +1115,32 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
     char *str_ph   = hplc_sint_str(m->pH);
     char *str_fr   = hplc_sint_str(m->flow_rate);
     char *str_sc   = hplc_sint_str(m->sample_conc);
-    char *str_temp = hplc_sint_str(m->temperature);
+    char *str_temp;
+    if(m->temperature==AMB)
+    	str_temp=strdup("amb");
+    else
+    	str_temp= hplc_sint_str(m->temperature);
     char *str_brand= hplc_clmn_brand_str(m->column.brand);
 
     char *s_len  = hplc_sint_str(m->column.clmn_length);
     char *s_id   = hplc_sint_str(m->column.clmn_id);
     char *s_bead = hplc_sint_str(m->column.clmn_bead_size);
 
-    snprintf(tmp_brand, sizeof(tmp_brand), "%s %s", m->column.clmn_phase, str_brand);
-    snprintf(tmp_dims, sizeof(tmp_dims), "%sx%sx%s", s_len, s_id, s_bead);
+    snprintf(tmp_brand, sizeof(tmp_brand), "%s %s", m->column.clmn_phase ? m->column.clmn_phase : "", str_brand ? str_brand : "");
+    snprintf(tmp_dims, sizeof(tmp_dims), "%sx%sx%s", s_len ? s_len : "", s_id ? s_id : "", s_bead ? s_bead : "");
     snprintf(tmp_wavelength, sizeof(tmp_wavelength), "%d", m->wavelength);
 
     free(s_len);
     free(s_id);
     free(s_bead);
 
+    char *str_sp = NULL;
+    char *str_b_start = NULL;
+    char *str_b_end = NULL;
+    char *str_tg = NULL;
+
     if (m->run.type == ISO) {
-        char *str_sp = hplc_sint_str(m->run.iso.slvnt_percent);
+        str_sp = hplc_sint_str(m->run.iso.slvnt_percent);
 
         dash_table[0][1]  = m->slvnt;
         dash_table[1][1]  = str_ph;
@@ -1153,12 +1154,10 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
         dash_table[9][1]  = tmp_dims;
         dash_table[10][1] = str_temp;
         dash_table[11][1] = tmp_wavelength;
-
-        free(str_sp);
     } else {
-        char *str_b_start = hplc_sint_str(m->run.gra.slvnt_start);
-        char *str_b_end   = hplc_sint_str(m->run.gra.slvnt_end);
-        char *str_tg      = hplc_sint_str(m->run.gra.tg);
+        str_b_start = hplc_sint_str(m->run.gra.slvnt_start);
+        str_b_end   = hplc_sint_str(m->run.gra.slvnt_end);
+        str_tg      = hplc_sint_str(m->run.gra.tg);
 
         dash_table[0][1]  = m->slvnt;
         dash_table[1][1]  = str_ph;
@@ -1174,10 +1173,6 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
         dash_table[11][1] = tmp_dims;
         dash_table[12][1] = str_temp;
         dash_table[13][1] = tmp_wavelength;
-
-        free(str_b_start);
-        free(str_b_end);
-        free(str_tg);
     }
 
     if (index < 0 || index >= active_dash_rows) {
@@ -1186,12 +1181,12 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
         char *original = dash_table[index][1];
 
         if (end == -1) {
-            char *markup = g_markup_printf_escaped(colors[color], original);
+            char *markup = g_markup_printf_escaped(colors[color], original ? original : "");
             dash_table[index][1] = markup;
             update_screen1_table_data(&app, (const char * (*)[DASH_TABLE_COLUMNS])dash_table);
             g_free(markup);
         } else {
-            size_t len = strlen(original);
+            size_t len = original ? strlen(original) : 0;
             if (start >= 0 && (size_t)start < len && end > start && (size_t)end <= len) {
                 char prefix[100] = {0};
                 char target[100] = {0};
@@ -1220,14 +1215,17 @@ void update_metadata(struct hplc_run_metadata *m, enum selectivity_action action
         dash_table[index][1] = original;
     }
 
+    // Deferred memory freeing AFTER rendering UI table markup
     free(str_ph);
     free(str_fr);
     free(str_sc);
     free(str_temp);
     free(str_brand);
-    if (adata) free(adata);
+    free(str_sp);
+    free(str_b_start);
+    free(str_b_end);
+    free(str_tg);
 }
-
 void update_bench(struct benchmarks *ben)
 {
     char tmp[2][50], *tmp1[2];
@@ -1338,6 +1336,7 @@ static void activate(GtkApplication *app_ptr, gpointer user_data) {
 int main(int argc, char **argv) {
     init_dash();
     init_bench();
+
     if (!hplc_query_init())
         return 0;
 

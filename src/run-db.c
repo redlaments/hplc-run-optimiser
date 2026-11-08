@@ -9,6 +9,7 @@
 #include "run-db.h"
 #include "lib/metadata.h"
 #include "cli.h"
+#include "macro.h"
 
 /* Global database handle assumed from calling environment */
 bool hplc_run_add(struct hplc_run_metadata *data, char *pk)
@@ -106,22 +107,24 @@ void hplc_run_delete(void)
 {
 	int ret;
 	sqlite3_stmt *pStmt;
-	char *sql = "DELETE FROM hplc_run";
+	char *sql[] = {"DELETE FROM hplc_run","delete from hplc_run_iso","delete from hplc_run_gra"};
 
-	ret = sqlite3_prepare_v2(pDb, sql, strlen(sql)+1, &pStmt, NULL);
-	if (ret != SQLITE_OK) {
-		fprintf(stderr, "hplc_run_delete: failed to prepare statement: %s\n",
-			sqlite3_errmsg(pDb));
-		return;
+	for(int i=0;i<SIZEOF(sql);i++){
+		ret = sqlite3_prepare_v2(pDb, sql[i], strlen(sql[i])+1, &pStmt, NULL);
+		if (ret != SQLITE_OK) {
+			fprintf(stderr, "hplc_run_delete: failed to prepare statement: %s\n",
+				sqlite3_errmsg(pDb));
+			return;
+		}
+
+		ret = sqlite3_step(pStmt);
+		if (ret != SQLITE_DONE) {
+			fprintf(stderr, "hplc_run_delete: execution failed: %s\n",
+				sqlite3_errmsg(pDb));
+		}
+
+		sqlite3_finalize(pStmt);
 	}
-
-	ret = sqlite3_step(pStmt);
-	if (ret != SQLITE_DONE) {
-		fprintf(stderr, "hplc_run_delete: execution failed: %s\n",
-			sqlite3_errmsg(pDb));
-	}
-
-	sqlite3_finalize(pStmt);
 }
 bool hplc_column_retrive(struct hplc_column *clmn, int id)
 {
@@ -308,8 +311,8 @@ sqlite3_stmt*hplc_run_table_prepare()
 	const char*tail;
 	char *sql = "select hr.grid,hr.slvnt,hr.ph,hr.type,hr.flow_rate, "
 		"hr.njctn_volume,hr.njctn_type,hr.sample_conc,hr.temperature,"
-		"hr.wave,hc.brand,hc.clmn_phase,hc.clmn_length,hc.clmn_id,"
-                    "hc.clmn_bead_size "
+		"hr.wave,hc.brand,hc.lig,hc.length,hc.diameter,"
+                    "hc.ps "
 		    "from hplc_run hr "
 		    "join hplc_columns hc on hr.clmn_id=hc.id ";
 
@@ -517,7 +520,7 @@ bool hplc_run_meta_check(struct hplc_run_metadata* data, char** pk)
                 "hr.slvnt = ? AND "
                 "hr.ph = ? AND "
                 "hr.type = ? AND "
-                "hr,flow_rate = ? AND "
+                "hr.flow_rate = ? AND "
                 "hr.njctn_volume = ? AND "
                 "hr.njctn_type = ? AND "
                 "hr.sample_conc = ? AND "

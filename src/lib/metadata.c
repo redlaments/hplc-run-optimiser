@@ -193,6 +193,11 @@ bool hplc_metadata(char*file_name,struct hplc_run_metadata*data)
 			fprintf(stderr,"Solvent end tail:%s\n",tail);
 			tail=NULL;
 		}
+		if(data->run.gra.slvnt_end<=data->run.gra.slvnt_start){
+			print_error(
+			"Gradient end %% being larger than gradient start is not supported\n");
+			return false;
+		}
 		data->run.gra.tg=HPLC_STRTOD(argv[index++]){
 			fprintf(stderr,"tg tail:%s\n",tail);
 			tail=NULL;

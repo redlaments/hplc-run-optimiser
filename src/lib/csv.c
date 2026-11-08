@@ -529,7 +529,7 @@ int handle_pump(char*args[],char*data,int*i,int size,struct hplc_csv*csv,void*va
 			pump->intensity[j]=hplc_strtosi(argv[1],NULL);
 		}
 	}
-	while(data[*i]!='['&&data[*i]!='\0')
+	while(*i<size && data[*i]!='['&&data[*i]!='\0')
 		(*i)++;
 	return 0;
 }
@@ -927,9 +927,9 @@ hplc_sint resolve_runtime(const struct hplc_csv *csv)
 
 hplc_sint minimum_res(const struct hplc_csv*csv)
 {
-    hplc_sint min_resolution = 0;
+    hplc_sint min_resolution = hplc_scale_int(99);
 
-    for (int i = 0; i < csv->peak_count; i++) {
+    for (int i = 1; i < csv->peak_count; i++) {
         if (csv->peaks[i].resolution < min_resolution) { //
             min_resolution = csv->peaks[i].resolution; //
         }
